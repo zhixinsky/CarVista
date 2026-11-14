@@ -44,3 +44,15 @@ expect(Diagnostics.changes(before: after, after: removed).contains("未再扫描
 let missing = Diagnostics.scan(root: root.appendingPathComponent("missing"), system: "fixture")
 expect(!missing.errors.isEmpty && missing.status == "无法读取目录", "missing directory reported as empty success")
 print("PASS: 162 crop cases; file additions, changes, missing entries, symlink exclusion and missing-directory errors")
+
+let oldRecord = try JSONSerialization.data(withJSONObject: ["id": UUID().uuidString, "created": 0,
+    "width": 1920, "height": 720, "mode": "深色"])
+var restoredRecord = try JSONDecoder().decode(SavedWallpaper.self, from: oldRecord)
+expect(restoredRecord.batchID == nil && restoredRecord.customName == nil, "old records must remain readable")
+let group = UUID()
+restoredRecord.batchID = group
+restoredRecord.customName = "我的海边壁纸"
+let roundtrip = try JSONDecoder().decode(SavedWallpaper.self, from: JSONEncoder().encode(restoredRecord))
+expect(roundtrip.batchID == group && roundtrip.customName == "我的海边壁纸", "group/name persistence failed")
+expect(roundtrip.id == restoredRecord.id && roundtrip.width == 1920, "migration changed original identity")
+print("PASS: backward-compatible history decoding and new metadata persistence")

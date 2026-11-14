@@ -20,7 +20,7 @@ jobs:
         working-directory: ios
         run: |
           set -euo pipefail
-          swiftc Sources/CropGeometry.swift Sources/Diagnostics.swift Tests/main.swift -o /tmp/carcanvas-tests
+          swiftc Sources/CropGeometry.swift Sources/Diagnostics.swift Sources/WallpaperRecord.swift Tests/main.swift -o /tmp/carcanvas-tests
           /tmp/carcanvas-tests
       - name: Test backup, stale writes and container parsing
         working-directory: ios/Vendor/WQFiles
@@ -50,6 +50,8 @@ jobs:
           app='DerivedData/Build/Products/Release-iphoneos/CarCanvasWorkshop.app'
           test -f "$app/CarCanvasWorkshop"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName' "$app/Info.plist"
+          test -d "$app/LaunchScreen.storyboardc"
           codesign --force --sign - --entitlements CarCanvas.entitlements "$app"
           codesign --verify "$app"
           codesign --display --entitlements - "$app"

@@ -19,19 +19,6 @@ struct WallpaperTarget: Identifiable {
     var editable: Bool { width > 0 && height > 0 && width <= 8192 && height <= 8192 && width * height <= 16_000_000 }
 }
 
-struct SavedWallpaper: Identifiable, Codable {
-    let id: UUID
-    let created: Date
-    let width: Int
-    let height: Int
-    let mode: String
-    var batchID: UUID? = nil
-    var customName: String? = nil
-    var bitmap: URL { WorkshopModel.library.appendingPathComponent("\(id).cpbitmap") }
-    var preview: URL { WorkshopModel.library.appendingPathComponent("\(id).jpg") }
-    var originalImage: URL { WorkshopModel.library.appendingPathComponent("\(id).png") }
-}
-
 @MainActor
 final class WorkshopModel: ObservableObject {
     @Published var targets: [WallpaperTarget] = []
@@ -44,7 +31,7 @@ final class WorkshopModel: ObservableObject {
     @Published var reportURL: URL?
     let group = CCEngine.appGroup()
     nonisolated static var library: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Wallpapers")
+        WallpaperStorage.library
     }
     private let queue = DispatchQueue(label: "carcanvas.io", qos: .userInitiated)
 

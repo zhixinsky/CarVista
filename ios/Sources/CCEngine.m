@@ -36,13 +36,15 @@ static BOOL CCRegisterRoot(NSString *path) {
     if (![p.stringByDeletingLastPathComponent isEqualToString:CCParent]) return NO;
     if (![[NSUUID alloc] initWithUUIDString:p.lastPathComponent]) return NO;
     if (![wq_container_label(p) isEqualToString:CCIdentifier]) return NO;
-    [CCRoots addObject:p];
+    @synchronized (CCRoots) { [CCRoots addObject:p]; }
     return YES;
 }
 static BOOL CCAllowed(NSString *path) {
     NSString *p = CCCanonical(path);
     if (![p.pathExtension.lowercaseString isEqualToString:@"cpbitmap"]) return NO;
-    for (NSString *root in CCRoots) {
+    NSArray *roots;
+    @synchronized (CCRoots) { roots = CCRoots.allObjects; }
+    for (NSString *root in roots) {
         // Recheck identity on every mutation; never accept an arbitrary path.
         NSString *prefix = [[root stringByAppendingPathComponent:@"Library/Caches"] stringByAppendingString:@"/"];
         if (![p hasPrefix:prefix] || ![wq_container_label(root) isEqualToString:CCIdentifier]) continue;
@@ -127,7 +129,7 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues) {
     CCSetup();
     if (!wq_app_group().length) return CCFail(@"签名未提供 App Group。请用支持 App Group 的签名方式重新安装；通配符证书通常不满足要求。");
     CCAllowFullScan = allowFullScan;
-    [CCRoots removeAllObjects];
+    @synchronized (CCRoots) { [CCRoots removeAllObjects]; }
     NSString *remembered = [NSUserDefaults.standardUserDefaults stringForKey:@"CCContainer"];
     if (remembered.length) CCRegisterRoot(remembered);
     if (!CCRoots.count) {

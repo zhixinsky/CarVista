@@ -1,6 +1,7 @@
-> **CarCanvas Workshop 0.2:** New source and installation instructions are in
+> **CarCanvas 0.3:** New source and installation instructions are in
 > [`ios/`](ios/README.md). This experimental app implements WQ container access,
-> photo cropping, CPBitmap export, wallpaper replacement, backup and restore.
+> offline photo cropping, light/dark CPBitmap export, wallpaper replacement,
+> grouped history, backup and restore, with a new app icon and first-use guide.
 > iOS 27.2 and actual CarPlay display results still require device validation.
 > GitHub Actions builds `CarCanvasWorkshop-resign.ipa`, which requires re-signing
 > with a valid App Group. The IPA in `build/` below is the original upstream app,
