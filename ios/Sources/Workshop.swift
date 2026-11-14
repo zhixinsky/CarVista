@@ -16,7 +16,7 @@ struct WallpaperTarget: Identifiable {
     var mode: String { raw["mode"] as? String ?? "未知" }
     var width: Int { raw["width"] as? Int ?? 0 }
     var height: Int { raw["height"] as? Int ?? 0 }
-    var editable: Bool { width > 0 && height > 0 && width <= 8192 && height <= 8192 && width * height <= 16_000_000 }
+    var editable: Bool { WallpaperStorage.validSize(width: width, height: height) }
 }
 
 @MainActor
@@ -41,7 +41,11 @@ final class WorkshopModel: ObservableObject {
             let files = try FileManager.default.contentsOfDirectory(at: Self.library, includingPropertiesForKeys: nil)
             history = files.filter { $0.pathExtension == "json" }.compactMap {
                 guard let data = try? Data(contentsOf: $0) else { return nil }
-                return try? JSONDecoder().decode(SavedWallpaper.self, from: data)
+                guard let entry = try? JSONDecoder().decode(SavedWallpaper.self, from: data),
+                      WallpaperStorage.validSize(width: entry.width, height: entry.height),
+                      $0.deletingPathExtension().lastPathComponent == entry.id.uuidString,
+                      FileManager.default.fileExists(atPath: entry.bitmap.path) else { return nil }
+                return entry
             }.sorted { $0.created > $1.created }
         } catch { message = "无法载入本地历史：\(error.localizedDescription)" }
         backups = CCEngine.backups() as? [[String: Any]] ?? []
@@ -61,6 +65,7 @@ final class WorkshopModel: ObservableObject {
     }
 
     func scan(deep: Bool) {
+        guard !busy else { return }
         message = deep ? "正在完整扫描容器，请保持应用在前台。首次可能需要数分钟。" : "正在定位壁纸缓存…"
         work({ CCEngine.discover(deep) as? [String: Any] ?? [:] }) { result in
             self.targets = (result["files"] as? [[String: Any]] ?? []).map { WallpaperTarget(raw: $0) }
@@ -102,7 +107,7 @@ final class WorkshopModel: ObservableObject {
     }
 
     func restore(_ backup: [String: Any]) {
-        guard let path = backup["path"] as? String else { return }
+        guard !busy, let path = backup["path"] as? String else { return }
         message = "正在恢复并校验…"
         work({ CCEngine.restore(path) as? [String: Any] ?? [:] }) { result in
             self.message = result["message"] as? String ?? "恢复失败"
@@ -124,9 +129,15 @@ final class WorkshopModel: ObservableObject {
     }
 
     func saveVariants(image: UIImage, modes: [String], completion: @escaping ([SavedWallpaper]) -> Void) {
+        guard !busy else { return }
+        guard let cg = image.cgImage, WallpaperStorage.validSize(width: cg.width, height: cg.height),
+              !modes.isEmpty, Set(modes).count == modes.count,
+              modes.allSatisfy({ ["深色", "浅色"].contains($0) }) else {
+            message = "图片尺寸或外观选项无效"; completion([]); return
+        }
         let batch = UUID()
-        let entries = modes.map { SavedWallpaper(id: UUID(), created: Date(), width: Int(image.size.width),
-            height: Int(image.size.height), mode: $0, batchID: batch) }
+        let entries = modes.map { SavedWallpaper(id: UUID(), created: Date(), width: cg.width,
+            height: cg.height, mode: $0, batchID: batch) }
         message = "正在保存壁纸…"
         work({
             var failure: String?
@@ -164,7 +175,14 @@ final class WorkshopModel: ObservableObject {
     }
 
     func applyBatch(entries: [SavedWallpaper], targets: [WallpaperTarget], completion: @escaping () -> Void) {
-        guard !targets.isEmpty else { return }
+        guard !busy else { return }
+        guard !targets.isEmpty, targets.allSatisfy(\.editable),
+              Set(targets.map(\.id)).count == targets.count, !entries.isEmpty else {
+            message = "所选缓存不可替换，请重新查找。"; completion(); return
+        }
+        guard targets.allSatisfy({ target in entries.count == 1 || entries.contains(where: { $0.mode == target.mode }) }) else {
+            message = "没有对应外观的壁纸，请重新选择。"; completion(); return
+        }
         message = "正在备份并应用壁纸…"
         work({
             var completed = 0
@@ -174,6 +192,7 @@ final class WorkshopModel: ObservableObject {
                 }
                 var source = entry.bitmap.path
                 var temporary: URL?
+                defer { if let temporary { try? FileManager.default.removeItem(at: temporary) } }
                 if entry.width != target.width || entry.height != target.height {
                     guard let image = UIImage(contentsOfFile: entry.originalImage.path) ?? UIImage(contentsOfFile: entry.preview.path),
                           target.editable else {
@@ -193,7 +212,6 @@ final class WorkshopModel: ObservableObject {
                     source = url.path
                 }
                 let result = CCEngine.apply(target.raw, source: source) as? [String: Any] ?? [:]
-                if let temporary { try? FileManager.default.removeItem(at: temporary) }
                 if result["ok"] as? Bool != true {
                     return ["ok": false, "message": "已应用 \(completed)/\(targets.count) 个。\(result["message"] as? String ?? "写入失败")。已完成的项目可在备份与恢复中还原。"]
                 }
@@ -408,7 +426,9 @@ struct BackupsView: View {
     @State private var confirming = false
     var body: some View {
         List {
-            Text("每次替换都会保留原文件。恢复前请先在壁纸页扫描，确认目标容器。")
+            Text("每次替换都会保留原文件。恢复前先查找车机壁纸，确认目标容器。")
+            Button("查找车机壁纸") { model.scan(deep: false) }.disabled(model.busy || model.group.isEmpty)
+            if model.busy { ProgressView("正在处理…") }
             Text(model.message)
             if model.backups.isEmpty { Text("尚无备份") }
             ForEach(Array(model.backups.enumerated()), id: \.offset) { _, item in
@@ -432,7 +452,7 @@ struct HelpView: View {
             Section("测试步骤") {
                 Text("1. 签名时保留有效 App Group，再安装。")
                 Text("2. 停车后，在车机 CarPlay 设置中切换几张内置图片壁纸，让系统生成缓存。")
-                Text("3. 回到壁纸页扫描，选中深色或浅色文件，选图、调整裁剪并生成。")
+                Text("3. 打开“壁纸”，选图、调整裁剪并生成。再到“历史记录”选择壁纸，点击“应用到 CarPlay 壁纸”。")
                 Text("4. 确认备份并替换。重启 iPhone，重新连接车机检查效果。")
                 Text("5. 不满意可在恢复页恢复备份，重启后检查。")
             }

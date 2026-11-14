@@ -2,6 +2,9 @@
 import Foundation
 
 enum WallpaperStorage {
+    static func validSize(width: Int, height: Int) -> Bool {
+        width > 0 && height > 0 && width <= 8192 && height <= 8192 && width * height <= 16_000_000
+    }
     static var library: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Wallpapers")
     }

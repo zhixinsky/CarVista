@@ -56,3 +56,11 @@ let roundtrip = try JSONDecoder().decode(SavedWallpaper.self, from: JSONEncoder(
 expect(roundtrip.batchID == group && roundtrip.customName == "我的海边壁纸", "group/name persistence failed")
 expect(roundtrip.id == restoredRecord.id && roundtrip.width == 1920, "migration changed original identity")
 print("PASS: backward-compatible history decoding and new metadata persistence")
+
+expect(WallpaperStorage.validSize(width: 1920, height: 720), "normal wallpaper rejected")
+for (width, height) in [(0, 720), (1920, 0), (-1, 720), (Int.max, Int.max), (8193, 1), (8192, 8192)] {
+    expect(!WallpaperStorage.validSize(width: width, height: height), "unsafe dimensions accepted")
+}
+expect(CropGeometry.rect(source: .init(width: 100, height: 100), target: .init(width: 10, height: 10), zoom: .nan, x: 0.5, y: 0.5) == .zero, "NaN reached renderer")
+expect(CropGeometry.rect(source: .init(width: CGFloat.infinity, height: 100), target: .init(width: 10, height: 10), zoom: 1, x: 0.5, y: 0.5) == .zero, "infinite size reached renderer")
+print("PASS: invalid dimensions, integer overflow and non-finite crop rejection")

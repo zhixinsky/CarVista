@@ -9,6 +9,7 @@ static NSString *const CCIdentifier = @"com.apple.CarPlayWallpaper";
 static NSString *const CCParent = @"/private/var/mobile/Containers/Data/Application";
 static BOOL CCAllowFullScan;
 static NSMutableSet<NSString *> *CCRoots;
+static WQScanCancellation *CCScan;
 static BOOL CCConfirm(NSString *what, int64_t ids, double seconds) {
     wq_log(@"CarCanvas scan: %@, %lld ids, estimate %.0f seconds", what, ids, seconds);
     return CCAllowFullScan;
@@ -83,18 +84,20 @@ static UIImage *CCDecode(NSData *data) {
     CFRelease(array);
     return image;
 }
-static NSArray *CCWalk(NSString *root, NSMutableArray *issues) {
+static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellation *scan) {
     NSString *caches = [root stringByAppendingPathComponent:@"Library/Caches"];
     NSMutableArray *queue = [NSMutableArray arrayWithObject:caches];
     NSMutableArray *files = NSMutableArray.new;
     NSUInteger count = 0;
-    while (queue.count && count < 20000) {
+    while (queue.count && count < 20000 && !scan.isCancelled) {
+        @autoreleasepool {
         NSString *dir = queue.lastObject;
         [queue removeLastObject];
         NSString *error = nil;
         NSArray *names = wq_list(dir, &error);
         if (!names) { [issues addObject:[NSString stringWithFormat:@"%@: %@", dir, error ?: @"无法列出目录"]]; continue; }
         for (NSString *name in names) {
+            if (scan.isCancelled) break;
             if (++count > 20000) break;
             if ([name isEqualToString:@"."] || [name isEqualToString:@".."] || [name containsString:@"/"]) continue;
             NSString *path = [dir stringByAppendingPathComponent:name];
@@ -105,6 +108,7 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues) {
                 if (path.pathComponents.count - caches.pathComponents.count < 10) [queue addObject:path];
                 else [issues addObject:[NSString stringWithFormat:@"达到目录深度限制：%@", path]];
             } else if (S_ISREG(st.st_mode) && [name.pathExtension.lowercaseString isEqualToString:@"cpbitmap"]) {
+                @autoreleasepool {
                 if (files.count >= 200) { [issues addObject:@"达到 200 个缓存文件上限"]; return files; }
                 NSDictionary *version = wq_file_version(path);
                 if (!version) continue;
@@ -114,7 +118,9 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues) {
                     @"width":@(image.CGImage ? CGImageGetWidth(image.CGImage) : 0),
                     @"height":@(image.CGImage ? CGImageGetHeight(image.CGImage) : 0), @"version":version}];
                 if (!image) [issues addObject:[NSString stringWithFormat:@"无法解码 %@，已禁止替换", name]];
+                }
             }
+        }
         }
     }
     if (queue.count || count > 20000) [issues addObject:@"达到 20000 个目录项上限，扫描不完整"];
@@ -124,9 +130,14 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues) {
 @implementation CCEngine
 + (NSString *)appGroup { CCSetup(); return wq_app_group() ?: @""; }
 + (NSString *)logs { return wq_log_text(); }
-+ (void)cancelScan { wq_full_scan_stop(); }
++ (void)cancelScan {
+    @synchronized (CCEngine.class) { [CCScan cancel]; }
+    wq_full_scan_stop();
+}
 + (NSDictionary *)discover:(BOOL)allowFullScan {
     CCSetup();
+    WQScanCancellation *scan = WQScanCancellation.new;
+    @synchronized (CCEngine.class) { CCScan = scan; }
     if (!wq_app_group().length) return CCFail(@"签名未提供 App Group。请用支持 App Group 的签名方式重新安装；通配符证书通常不满足要求。");
     CCAllowFullScan = allowFullScan;
     @synchronized (CCRoots) { [CCRoots removeAllObjects]; }
@@ -139,17 +150,21 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues) {
             if ([wq_bundle_id_for_container(path) isEqualToString:CCIdentifier]) CCRegisterRoot(path);
         }
         if (!CCRoots.count) {
-            NSArray *containers = wq_enumerate(CCParent, 0, nil, nil);
+            NSArray *containers = wq_enumerate(CCParent, 0, scan, nil);
             wq_load_display_names();
-            for (NSString *path in containers) if (CCRegisterRoot(path)) break;
+            for (NSString *path in containers) {
+                if (scan.isCancelled || CCRegisterRoot(path)) break;
+            }
         }
     }
     CCAllowFullScan = NO;
+    if (scan.isCancelled) return CCFail(@"已停止查找，可随时重试。");
     if (!CCRoots.count) return CCFail(allowFullScan ? @"未能确认 CarPlayWallpaper 容器。请导出日志；可能是签名、访问被拒绝或系统结构变化。" : @"快速定位未找到容器。首次使用可尝试完整扫描，可能需要数分钟。");
     NSString *root = CCRoots.anyObject;
     [NSUserDefaults.standardUserDefaults setObject:root forKey:@"CCContainer"];
     NSMutableArray *issues = NSMutableArray.new;
-    NSArray *files = CCWalk(root, issues);
+    NSArray *files = CCWalk(root, issues, scan);
+    if (scan.isCancelled) return CCFail(@"已停止查找，可随时重试。");
     return @{@"ok":@YES, @"root":root, @"files":files, @"issues":issues,
         @"message": files.count ? @"已找到壁纸缓存；请选择单个目标进行替换。" : @"容器已找到，但没有可识别的 CPBitmap。请先在车机切换内置壁纸后重试；也可能是格式变化。"};
 }

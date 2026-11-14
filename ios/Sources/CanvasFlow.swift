@@ -155,11 +155,11 @@ struct ComposeWallpaperView: View {
                     Text("应用时自动匹配所选车机缓存的尺寸，必要时居中裁剪。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Button("清除已保存的设置", role: .destructive) { clear = true }.disabled(model.busy)
+                Button("清除已保存的设置", role: .destructive) { clear = true }.disabled(model.busy || loading)
             }
             if let problem { Section { Text(problem).foregroundStyle(.red) } }
         }.navigationTitle("壁纸").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
-            .toolbar { Button("清除") { clear = true }.disabled(model.busy) }
+            .toolbar { Button("清除") { clear = true }.disabled(model.busy || loading) }
             .onAppear {
                 if image == nil { image = UIImage(contentsOfFile: draft.path) }
                 if ![1920, 1280].contains(width) { width = 1920 }
@@ -174,10 +174,12 @@ struct ComposeWallpaperView: View {
                           let cg = CGImageSourceCreateThumbnailAtIndex(input, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
                             kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 4096] as CFDictionary) else { throw CocoaError(.fileReadCorruptFile) }
                     let selected = UIImage(cgImage: cg)
+                    try Task.checkCancellation()
                     guard let jpeg = selected.jpegData(compressionQuality: 0.95) else { throw CocoaError(.fileWriteUnknown) }
                     try jpeg.write(to: draft, options: .atomic)
                     image = selected; zoom = 1; x = 0.5; y = 0.5
-                } catch { problem = "无法载入图片：\(error.localizedDescription)" }
+                } catch is CancellationError { }
+                catch { problem = "无法载入图片：\(error.localizedDescription)" }
                 loading = false
             }
             .confirmationDialog("选择生成的外观", isPresented: $modePicker, titleVisibility: .visible) {
@@ -323,8 +325,9 @@ struct ApplyWallpaperView: View {
                 if model.busy { ProgressView("正在处理，请保持应用在前台…") }
             }
             if !finished {
-                if model.targets.isEmpty {
+                if model.targets.filter(\.editable).isEmpty {
                     Section {
+                        if !model.targets.isEmpty { Text("找到缓存，但当前格式或尺寸无法替换。请重新查找，或在设置中导出诊断报告。") }
                         Text(model.group.isEmpty ? "当前安装缺少车机访问权限，需重新签名。已保存的壁纸不受影响。" : model.message)
                         Button("重新查找") { model.scan(deep: false) }.disabled(model.busy || model.group.isEmpty)
                         Button("继续查找（首次可能需要几分钟）") { model.scan(deep: true) }.disabled(model.busy || model.group.isEmpty)
