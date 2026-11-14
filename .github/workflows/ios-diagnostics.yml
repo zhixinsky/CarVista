@@ -1,4 +1,4 @@
-name: Build diagnostic IPA (unsigned)
+name: Build CarCanvas Workshop IPA
 on:
   push:
     branches: [main]
@@ -16,32 +16,41 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install project generator
         run: brew install xcodegen
+      - name: Test crop and diagnostic behavior
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          swiftc Sources/CropGeometry.swift Sources/Diagnostics.swift Tests/main.swift -o /tmp/carcanvas-tests
+          /tmp/carcanvas-tests
       - name: Generate project and compile for physical iPhone
         working-directory: ios
         run: |
           set -euo pipefail
           xcodebuild -version
           xcodegen generate
-          xcodebuild -project CarCanvasDiagnostics.xcodeproj \
-            -scheme CarCanvasDiagnostics -configuration Release \
+          xcodebuild -project CarCanvasWorkshop.xcodeproj \
+            -scheme CarCanvasWorkshop -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath DerivedData \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
-      - name: Package unsigned IPA
+      - name: Package IPA for re-signing with App Group
         working-directory: ios
         run: |
           set -euo pipefail
-          app='DerivedData/Build/Products/Release-iphoneos/CarCanvasDiagnostics.app'
-          test -f "$app/CarCanvasDiagnostics"
+          app='DerivedData/Build/Products/Release-iphoneos/CarCanvasWorkshop.app'
+          test -f "$app/CarCanvasWorkshop"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist"
+          codesign --force --sign - --entitlements CarCanvas.entitlements "$app"
+          codesign --verify "$app"
+          codesign --display --entitlements - "$app"
           mkdir -p output/Payload
-          ditto "$app" output/Payload/CarCanvasDiagnostics.app
+          ditto "$app" output/Payload/CarCanvasWorkshop.app
           cd output
-          /usr/bin/zip -qry CarCanvasDiagnostics-unsigned.ipa Payload
-          shasum -a 256 CarCanvasDiagnostics-unsigned.ipa > SHA256SUMS
+          /usr/bin/zip -qry CarCanvasWorkshop-resign.ipa Payload
+          shasum -a 256 CarCanvasWorkshop-resign.ipa > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: CarCanvasDiagnostics-unsigned
+          name: CarCanvasWorkshop-resign
           path: |
             ios/output/*.ipa
             ios/output/SHA256SUMS

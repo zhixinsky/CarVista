@@ -1,11 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-@main
-struct CarCanvasDiagnosticsApp: App {
-    var body: some Scene { WindowGroup { DiagnosticsView() } }
-}
-
 struct DiagnosticsView: View {
     @State private var picking = false
     @State private var busy = false

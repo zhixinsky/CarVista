@@ -1,19 +1,35 @@
-name: CarCanvasDiagnostics
+name: CarCanvasWorkshop
 options:
   bundleIdPrefix: local.carcanvas
   deploymentTarget:
     iOS: '17.0'
 targets:
-  CarCanvasDiagnostics:
+  CarCanvasWorkshop:
     type: application
     platform: iOS
-    sources: [Sources]
+    sources:
+      - Sources
+      - path: Vendor/WQFiles
+        excludes: [LICENSE]
+      - path: LICENSE
+        buildPhase: resources
+      - path: Vendor/NOTICE.md
+        buildPhase: resources
+    dependencies:
+      - sdk: Security.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: local.carcanvas.diagnostics
+        PRODUCT_BUNDLE_IDENTIFIER: local.carcanvas.workshop
+        INFOPLIST_KEY_CFBundleDisplayName: CarCanvas Workshop
+        MARKETING_VERSION: '0.2.0'
+        CURRENT_PROJECT_VERSION: '2'
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         SWIFT_VERSION: '5.0'
         TARGETED_DEVICE_FAMILY: '1,2'
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: CarCanvas.entitlements
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/Bridge.h
+        HEADER_SEARCH_PATHS: '$(SRCROOT)/Vendor/WQFiles'
+        CLANG_ENABLE_OBJC_ARC: YES
