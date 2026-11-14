@@ -59,8 +59,11 @@ expect(roundtrip.id == restoredRecord.id && roundtrip.width == 1920, "migration 
 print("PASS: backward-compatible history decoding and new metadata persistence")
 
 expect(WallpaperStorage.validSize(width: 1920, height: 720), "normal wallpaper rejected")
-for (width, height) in [(0, 720), (1920, 0), (-1, 720), (Int.max, Int.max), (8193, 1), (8192, 8192)] {
+for (width, height) in [(0, 720), (1920, 0), (-1, 720), (Int.max, Int.max), (Int.max / 4 + 1, 1)] {
     expect(!WallpaperStorage.validSize(width: width, height: height), "unsafe dimensions accepted")
+}
+for (width, height) in [(8193, 1000), (8192, 8192), (12000, 4000)] {
+    expect(WallpaperStorage.validSize(width: width, height: height), "large original image incorrectly rejected")
 }
 expect(CropGeometry.rect(source: .init(width: 100, height: 100), target: .init(width: 10, height: 10), zoom: .nan, x: 0.5, y: 0.5) == .zero, "NaN reached renderer")
 expect(CropGeometry.rect(source: .init(width: CGFloat.infinity, height: 100), target: .init(width: 10, height: 10), zoom: 1, x: 0.5, y: 0.5) == .zero, "infinite size reached renderer")

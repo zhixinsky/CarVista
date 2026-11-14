@@ -185,7 +185,7 @@ struct ComposeWallpaperView: View {
                           let pixelWidth = properties[kCGImagePropertyPixelWidth] as? Int,
                           let pixelHeight = properties[kCGImagePropertyPixelHeight] as? Int else { throw CocoaError(.fileReadCorruptFile) }
                     guard WallpaperStorage.validSize(width: pixelWidth, height: pixelHeight) else {
-                        problem = "图片过大。请先裁好图片再导入（最长边 8192 像素，总像素不超过 1600 万）；应用不会自动缩小原图。"
+                        problem = "无法读取有效的图片尺寸，请重新导出图片后再试。"
                         loading = false; return
                     }
                     guard

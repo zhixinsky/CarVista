@@ -60,7 +60,7 @@ static BOOL CCAllowed(NSString *path) {
     return NO;
 }
 static UIImage *CCDecode(NSData *data) {
-    if (!data.length || data.length > 64 * 1024 * 1024) return nil;
+    if (!data.length) return nil;
     typedef CFArrayRef (*Decoder)(CFDataRef, void *, int, void *);
     static Decoder decode;
     static dispatch_once_t once;
@@ -112,7 +112,7 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellatio
                 if (files.count >= 200) { [issues addObject:@"达到 200 个缓存文件上限"]; return files; }
                 NSDictionary *version = wq_file_version(path);
                 if (!version) continue;
-                UIImage *image = CCDecode(wq_read(path, 64 * 1024 * 1024, &error));
+                UIImage *image = CCDecode(wq_read(path, 0, &error));
                 NSString *mode = [name.lowercaseString containsString:@"dark"] ? @"深色" : [name.lowercaseString containsString:@"light"] ? @"浅色" : @"未知";
                 [files addObject:@{@"path":path, @"name":name, @"mode":mode, @"bytes":@(st.st_size),
                     @"width":@(image.CGImage ? CGImageGetWidth(image.CGImage) : 0),
@@ -170,7 +170,7 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellatio
 }
 + (UIImage *)preview:(NSString *)path {
     if (!CCAllowed(path)) return nil;
-    return CCDecode(wq_read(path, 64 * 1024 * 1024, NULL));
+    return CCDecode(wq_read(path, 0, NULL));
 }
 + (NSDictionary *)encode:(UIImage *)image to:(NSString *)path {
     if (!image.CGImage || image.size.width < 1 || image.size.height < 1) return CCFail(@"图片无效");
@@ -179,7 +179,7 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellatio
     SEL selector = NSSelectorFromString(@"writeToCPBitmapFile:flags:");
     if (![image respondsToSelector:selector]) return CCFail(@"当前系统不提供 CPBitmap 编码接口");
     BOOL ok = ((BOOL(*)(id, SEL, NSString *, int))objc_msgSend)(image, selector, path, 0);
-    UIImage *decoded = ok ? CCDecode([NSData dataWithContentsOfFile:path]) : nil;
+    UIImage *decoded = ok ? CCDecode([NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil]) : nil;
     if (!decoded.CGImage || CGImageGetWidth(decoded.CGImage) != CGImageGetWidth(image.CGImage) || CGImageGetHeight(decoded.CGImage) != CGImageGetHeight(image.CGImage)) {
         [NSFileManager.defaultManager removeItemAtPath:path error:nil];
         return CCFail(@"CPBitmap 回读尺寸校验失败，未写入系统缓存");
@@ -194,10 +194,10 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellatio
     NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
     if (![source.stringByStandardizingPath hasPrefix:[documents stringByAppendingString:@"/"]]) return CCFail(@"源文件不属于本应用");
     NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:source error:nil];
-    if (!attributes || [attributes fileSize] > 64 * 1024 * 1024) return CCFail(@"源文件缺失或过大");
-    NSData *data = [NSData dataWithContentsOfFile:source];
+    if (!attributes || ![attributes.fileType isEqualToString:NSFileTypeRegular] || attributes.fileSize == 0) return CCFail(@"源文件缺失或无效");
+    NSData *data = [NSData dataWithContentsOfFile:source options:NSDataReadingMappedIfSafe error:nil];
     UIImage *newImage = CCDecode(data);
-    UIImage *oldImage = CCDecode(wq_read(path, 64 * 1024 * 1024, NULL));
+    UIImage *oldImage = CCDecode(wq_read(path, 0, NULL));
     if (!newImage.CGImage || !oldImage.CGImage || CGImageGetWidth(newImage.CGImage) != CGImageGetWidth(oldImage.CGImage) || CGImageGetHeight(newImage.CGImage) != CGImageGetHeight(oldImage.CGImage)) return CCFail(@"源图片与目标缓存尺寸不一致");
     NSString *error = nil;
     if (!wq_write_if_unchanged(path, data, expected, &error)) return CCFail(error);
@@ -225,8 +225,8 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellatio
     if (!original || !CCAllowed(original)) return CCFail(@"请先扫描并确认原壁纸容器。只允许恢复仍存在的同一目标文件。");
     NSDictionary *expected = wq_file_version(original);
     NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:backup error:nil];
-    if (!expected || ![attributes.fileType isEqualToString:NSFileTypeRegular] || attributes.fileSize > 64 * 1024 * 1024) return CCFail(@"目标或备份文件无效");
-    NSData *data = [NSData dataWithContentsOfFile:backup];
+    if (!expected || ![attributes.fileType isEqualToString:NSFileTypeRegular] || attributes.fileSize == 0) return CCFail(@"目标或备份文件无效");
+    NSData *data = [NSData dataWithContentsOfFile:backup options:NSDataReadingMappedIfSafe error:nil];
     if (!CCDecode(data)) return CCFail(@"备份无法解码，拒绝恢复");
     NSString *error = nil;
     if (!wq_write_if_unchanged(original, data, expected, &error)) return CCFail(error);

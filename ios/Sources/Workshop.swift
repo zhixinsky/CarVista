@@ -55,7 +55,7 @@ final class WorkshopModel: ObservableObject {
         guard !busy else { return }
         busy = true
         queue.async {
-            let result = task()
+            let result = autoreleasepool { task() }
             DispatchQueue.main.async {
                 self.busy = false
                 finish(result)
@@ -142,7 +142,15 @@ final class WorkshopModel: ObservableObject {
         work({
             var failure: String?
             do {
-                guard let jpeg = image.jpegData(compressionQuality: 0.85), let png = image.pngData() else { throw CocoaError(.fileWriteUnknown) }
+                // Only the history thumbnail is reduced. The CPBitmap and PNG
+                // retain every original pixel, including for very wide screens.
+                let ratio = min(1, 512 / max(image.size.width, image.size.height))
+                let previewSize = CGSize(width: max(1, image.size.width * ratio), height: max(1, image.size.height * ratio))
+                let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
+                let preview = UIGraphicsImageRenderer(size: previewSize, format: format).image { _ in
+                    image.draw(in: CGRect(origin: .zero, size: previewSize))
+                }
+                guard let jpeg = preview.jpegData(compressionQuality: 0.85), let png = image.pngData() else { throw CocoaError(.fileWriteUnknown) }
                 for entry in entries {
                     let encoded = CCEngine.encode(image, to: entry.bitmap.path) as? [String: Any] ?? [:]
                     guard encoded["ok"] as? Bool == true else {

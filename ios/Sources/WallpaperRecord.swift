@@ -3,7 +3,11 @@ import Foundation
 
 enum WallpaperStorage {
     static func validSize(width: Int, height: Int) -> Bool {
-        width > 0 && height > 0 && width <= 8192 && height <= 8192 && width * height <= 16_000_000
+        // No arbitrary resolution cap. Reject invalid dimensions and byte-count
+        // overflow before handing an image to the system decoder/renderer.
+        guard width > 0, height > 0 else { return false }
+        let pixels = width.multipliedReportingOverflow(by: height)
+        return !pixels.overflow && pixels.partialValue <= Int.max / 4
     }
     static var library: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Wallpapers")
