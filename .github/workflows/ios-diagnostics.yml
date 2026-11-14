@@ -1,0 +1,48 @@
+name: Build diagnostic IPA (unsigned)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-diagnostics.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install project generator
+        run: brew install xcodegen
+      - name: Generate project and compile for physical iPhone
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcodegen generate
+          xcodebuild -project CarCanvasDiagnostics.xcodeproj \
+            -scheme CarCanvasDiagnostics -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Package unsigned IPA
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          app='DerivedData/Build/Products/Release-iphoneos/CarCanvasDiagnostics.app'
+          test -f "$app/CarCanvasDiagnostics"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist"
+          mkdir -p output/Payload
+          ditto "$app" output/Payload/CarCanvasDiagnostics.app
+          cd output
+          /usr/bin/zip -qry CarCanvasDiagnostics-unsigned.ipa Payload
+          shasum -a 256 CarCanvasDiagnostics-unsigned.ipa > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CarCanvasDiagnostics-unsigned
+          path: |
+            ios/output/*.ipa
+            ios/output/SHA256SUMS
+          if-no-files-found: error

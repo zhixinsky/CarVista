@@ -1,3 +1,9 @@
+> **Development fork:** The new diagnostic source is in [`ios/`](ios/README.md).
+> It currently scans user-selected folders only; iOS 27.2 system-container access
+> and CarPlay wallpaper replacement are not implemented or verified.
+> GitHub Actions builds an unsigned prototype IPA; the original IPA in `build/`
+> is an upstream release, not a build of this new source.
+
 <p align="center">
   <img src="docs/app-icon.png" alt="CarCanvas" width="128" height="128" />
 </p>

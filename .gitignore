@@ -16,3 +16,13 @@
 !build/
 build/*
 !build/*.ipa
+
+# Local redevelopment source
+!ios/
+!ios/**
+ios/DerivedData/
+ios/*.xcodeproj/
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
+ios/output/
