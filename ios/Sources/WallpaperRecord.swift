@@ -19,6 +19,7 @@ struct SavedWallpaper: Identifiable, Codable {
     // Optional fields preserve compatibility with 0.2 history records.
     var batchID: UUID? = nil
     var customName: String? = nil
+    var preservePixels: Bool? = nil
     var bitmap: URL { WallpaperStorage.library.appendingPathComponent("\(id).cpbitmap") }
     var preview: URL { WallpaperStorage.library.appendingPathComponent("\(id).jpg") }
     var originalImage: URL { WallpaperStorage.library.appendingPathComponent("\(id).png") }

@@ -49,6 +49,7 @@ let oldRecord = try JSONSerialization.data(withJSONObject: ["id": UUID().uuidStr
     "width": 1920, "height": 720, "mode": "深色"])
 var restoredRecord = try JSONDecoder().decode(SavedWallpaper.self, from: oldRecord)
 expect(restoredRecord.batchID == nil && restoredRecord.customName == nil, "old records must remain readable")
+expect(restoredRecord.preservePixels == nil, "old records must retain their previous rendering policy")
 let group = UUID()
 restoredRecord.batchID = group
 restoredRecord.customName = "我的海边壁纸"

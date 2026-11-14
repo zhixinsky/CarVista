@@ -4,6 +4,24 @@ import UIKit
 
 final class HistoryTests: XCTestCase {
     @MainActor
+    func testOriginalPixelsRejectMismatchedBatchBeforeAnyWrite() throws {
+        let model = WorkshopModel()
+        let entry = SavedWallpaper(id: UUID(), created: Date(), width: 1800, height: 600,
+            mode: "深色", preservePixels: true)
+        let restored = try JSONDecoder().decode(SavedWallpaper.self, from: JSONEncoder().encode(entry))
+        XCTAssertEqual(restored.preservePixels, true)
+        let matching = WallpaperTarget(raw: ["path": "/first", "mode": "深色", "width": 1800, "height": 600])
+        let different = WallpaperTarget(raw: ["path": "/second", "mode": "浅色", "width": 1920, "height": 720])
+        var completed = false
+        model.applyBatch(entries: [entry], targets: [matching, different]) { completed = true }
+        // Synchronous completion proves the batch never entered the writer queue.
+        XCTAssertTrue(completed)
+        XCTAssertFalse(model.busy)
+        XCTAssertTrue(model.message.contains("本次未写入"))
+        XCTAssertTrue(model.message.contains("1800 × 600"))
+        XCTAssertTrue(model.message.contains("1920 × 720"))
+    }
+    @MainActor
     func testHistoryPersistsRenameAndDeletesOwnedFiles() throws {
         let model = WorkshopModel()
         let entry = SavedWallpaper(id: UUID(), created: Date(), width: 1920, height: 720, mode: "深色")

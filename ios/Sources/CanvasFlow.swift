@@ -107,17 +107,26 @@ struct ComposeWallpaperView: View {
     @AppStorage("CCCropY") private var y = 0.5
     @AppStorage("CCWidth") private var width = 1920
     @AppStorage("CCHeight") private var height = 720
-    private var draft: URL { WorkshopModel.library.appendingPathComponent("draft.jpg") }
+    @AppStorage("CCPreservePixels") private var preservePixels = true
+    private var draft: URL { WorkshopModel.library.appendingPathComponent("draft.png") }
     private var targetSize: CGSize { CGSize(width: width, height: height) }
     var body: some View {
         Form {
             Section {
+                Toggle("原图替换（不缩放、不裁剪）", isOn: $preservePixels)
+                if preservePixels { Text("适合已经裁好的异形屏壁纸。应用时图片像素尺寸需与缓存一致。")
+                    .font(.caption).foregroundStyle(.secondary) }
                 PhotosPicker(selection: $selection, matching: .images) {
                     Label(image == nil ? "选择图片" : "更换图片", systemImage: "photo.badge.plus")
                         .font(.headline).padding(.vertical, 6)
                 }.disabled(loading || model.busy)
                 if loading { ProgressView("载入图片…") }
                 if let image {
+                    if preservePixels {
+                        Image(uiImage: image).resizable().scaledToFit()
+                        Text("原图 \(image.cgImage?.width ?? 0) × \(image.cgImage?.height ?? 0) 像素")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
                     GeometryReader { proxy in
                         let rect = CropGeometry.rect(source: image.size, target: proxy.size, zoom: zoom, x: x, y: y)
                         Image(uiImage: image).resizable().frame(width: rect.width, height: rect.height)
@@ -134,6 +143,7 @@ struct ComposeWallpaperView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                     HStack { Image(systemName: "minus.magnifyingglass"); Slider(value: $zoom, in: 1...4); Image(systemName: "plus.magnifyingglass") }
                     Text("拖动图片调整位置，滑动调整大小。").font(.caption).foregroundStyle(.secondary)
+                    }
                 } else {
                     ContentUnavailableView("先选一张喜欢的图片", systemImage: "photo", description: Text("没连接车机也能先制作，保存后随时应用。"))
                 }
@@ -147,14 +157,14 @@ struct ComposeWallpaperView: View {
                 if model.busy { ProgressView("正在保存…") }
             } footer: { Text("保存到历史记录。只有确认“应用到 CarPlay”后，才会更改车机壁纸。") }
             Section {
-                DisclosureGroup("画面尺寸") {
+                if !preservePixels { DisclosureGroup("画面尺寸") {
                     Picker("比例", selection: $width) {
                         Text("宽屏 1920 × 720").tag(1920)
                         Text("标准 1280 × 720").tag(1280)
                     }
                     Text("应用时自动匹配所选车机缓存的尺寸，必要时居中裁剪。")
                         .font(.caption).foregroundStyle(.secondary)
-                }
+                } }
                 Button("清除已保存的设置", role: .destructive) { clear = true }.disabled(model.busy || loading)
             }
             if let problem { Section { Text(problem).foregroundStyle(.red) } }
@@ -171,12 +181,20 @@ struct ComposeWallpaperView: View {
                 do {
                     guard let data = try await selection.loadTransferable(type: Data.self),
                           let input = CGImageSourceCreateWithData(data as CFData, nil),
+                          let properties = CGImageSourceCopyPropertiesAtIndex(input, 0, nil) as? [CFString: Any],
+                          let pixelWidth = properties[kCGImagePropertyPixelWidth] as? Int,
+                          let pixelHeight = properties[kCGImagePropertyPixelHeight] as? Int else { throw CocoaError(.fileReadCorruptFile) }
+                    guard WallpaperStorage.validSize(width: pixelWidth, height: pixelHeight) else {
+                        problem = "图片过大。请先裁好图片再导入（最长边 8192 像素，总像素不超过 1600 万）；应用不会自动缩小原图。"
+                        loading = false; return
+                    }
+                    guard
                           let cg = CGImageSourceCreateThumbnailAtIndex(input, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
-                            kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 4096] as CFDictionary) else { throw CocoaError(.fileReadCorruptFile) }
+                            kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: max(pixelWidth, pixelHeight)] as CFDictionary) else { throw CocoaError(.fileReadCorruptFile) }
                     let selected = UIImage(cgImage: cg)
                     try Task.checkCancellation()
-                    guard let jpeg = selected.jpegData(compressionQuality: 0.95) else { throw CocoaError(.fileWriteUnknown) }
-                    try jpeg.write(to: draft, options: .atomic)
+                    guard let png = selected.pngData() else { throw CocoaError(.fileWriteUnknown) }
+                    try png.write(to: draft, options: .atomic)
                     image = selected; zoom = 1; x = 0.5; y = 0.5
                 } catch is CancellationError { }
                 catch { problem = "无法载入图片：\(error.localizedDescription)" }
@@ -202,10 +220,10 @@ struct ComposeWallpaperView: View {
     private func generate(_ modes: [String]) {
         guard let image else { return }
         let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true; format.preferredRange = .standard
-        let cropped = UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
+        let cropped = preservePixels ? image : UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
             image.draw(in: CropGeometry.rect(source: image.size, target: targetSize, zoom: zoom, x: x, y: y))
         }
-        model.saveVariants(image: cropped, modes: modes) { entries in
+        model.saveVariants(image: cropped, modes: modes, preservePixels: preservePixels) { entries in
             if let first = entries.first { result = WallpaperCollection(id: first.batchID ?? first.id, entries: entries) }
             else { problem = model.message }
         }
@@ -270,6 +288,7 @@ struct WallpaperDetailView: View {
                             .aspectRatio(CGFloat(collection.first.width) / CGFloat(collection.first.height), contentMode: .fit).clipped()
                         Text(collection.title).font(.headline)
                         Text("\(collection.mode) · \(collection.first.width) × \(collection.first.height)").foregroundStyle(.secondary)
+                        if collection.first.preservePixels == true { Text("原图替换 · 不缩放、不裁剪").font(.caption).foregroundStyle(.secondary) }
                     }
                     Section {
                         Button { applying = true } label: { Label("应用到 CarPlay 壁纸", systemImage: "car.side.fill").font(.headline) }.disabled(model.busy)
@@ -321,7 +340,7 @@ struct ApplyWallpaperView: View {
         List {
             Section {
                 Text(finished ? model.message : "选择要替换的内置壁纸。原壁纸会自动备份。")
-                if !finished { Text("尺寸不同时会自动适配并居中裁剪。").font(.caption).foregroundStyle(.secondary) }
+                if !finished { Text(entries.contains { $0.preservePixels == true } ? "原图替换：仅写入相同像素尺寸的缓存，不缩放、不裁剪。" : "尺寸不同时会自动适配并居中裁剪。").font(.caption).foregroundStyle(.secondary) }
                 if model.busy { ProgressView("正在处理，请保持应用在前台…") }
             }
             if !finished {
@@ -341,7 +360,7 @@ struct ApplyWallpaperView: View {
                             Button("同时应用到深色与浅色") { selected = matching; confirmation = true }.disabled(model.busy)
                         }
                         ForEach(family.targets) { target in
-                            Button("应用到\(target.mode)") { selected = [target]; confirmation = true }.disabled(model.busy || (entries.count > 1 && !modes.contains(target.mode)))
+                            Button("应用到\(target.mode) · \(target.width) × \(target.height)") { selected = [target]; confirmation = true }.disabled(model.busy || (entries.count > 1 && !modes.contains(target.mode)))
                         }
                     }
                 }
