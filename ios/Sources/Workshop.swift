@@ -122,7 +122,7 @@ final class WorkshopModel: ObservableObject {
                 "system": UIDevice.current.systemVersion, "model": UIDevice.current.model,
                 "appGroup": group, "root": root, "message": message, "issues": issues,
                 "targets": targets.map(\.raw), "log": CCEngine.logs()]
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("CarCanvas-\(UUID().uuidString).json")
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("旅幕-\(UUID().uuidString).json")
             try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
             reportURL = url
         } catch { message = "导出报告失败：\(error.localizedDescription)" }
@@ -273,7 +273,7 @@ struct WorkshopView: View {
             NavigationStack {
                 List {
                     Section {
-                        Label("CarCanvas Workshop", systemImage: "car.side.fill").font(.title2.bold())
+                        Label("旅幕", systemImage: "car.side.fill").font(.title2.bold())
                         Text("自定义你的车机壁纸").foregroundStyle(.secondary)
                         Text("实验测试版 · iOS 27.2 尚待真机验证").font(.caption)
                     }
@@ -476,7 +476,7 @@ struct HelpView: View {
                 Text("报告含目录路径与访问日志，分享前可自行查看。")
             }
             Section("开源") {
-                Link("CarCanvas Workshop 源码", destination: URL(string: "https://github.com/zhixinsky/car")!)
+                Link("旅幕源码", destination: URL(string: "https://github.com/zhixinsky/car")!)
                 Link("WQFiles / kolbicz", destination: URL(string: "https://github.com/kolbicz/WQFiles")!)
                 Link("worse_query / forcequitOS", destination: URL(string: "https://github.com/forcequitOS/worse_query")!)
                 Text("GPL-3.0-or-later。访问模块版权属于原作者。")

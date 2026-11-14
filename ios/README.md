@@ -1,4 +1,8 @@
-# CarCanvas 0.3
+# 旅幕 0.3.2
+
+默认开启“原图替换（不缩放、不裁剪）”。已裁好的异形屏壁纸按原始像素导入、保存和应用；图片与缓存尺寸不同会提示并停止整批写入。旧版历史记录保留原有适配方式，请重新导入未被旧版裁剪的原图。关闭该开关可使用原有裁剪编辑方式。
+
+应用已更名为“旅幕”。为保持覆盖升级和已有数据兼容，工程名、Bundle ID 与 App Group 保持原值。第三方模块的作者署名与许可证保持完整。
 
 面向自有 iPhone 的 CarPlay 自定义壁纸实验版本。当前已实现完整操作流程，但 iOS 27.2 / iPhone 16 Pro Max / 真实车机效果尚未验证；不能将编译通过等同于设备兼容性通过。
 
@@ -19,7 +23,7 @@
 
 ## 安装与测试
 
-GitHub Actions 产物为 `CarCanvasWorkshop-resign.ipa`。它带有 ad-hoc 签名和 App Group entitlement，**不能直接安装**，必须通过签名工具授予有效 App Group 并重新签名。AltStore / SideStore 等支持 App Group 的流程可作为选择；仅保留 entitlement 文本不代表具备权限。普通企业通配符 profile 通常不满足条件。
+GitHub Actions 产物为 `LvMu-resign.ipa`。它带有 ad-hoc 签名和 App Group entitlement，**不能直接安装**，必须通过签名工具授予有效 App Group 并重新签名。AltStore / SideStore 等支持 App Group 的流程可作为选择；仅保留 entitlement 文本不代表具备权限。普通企业通配符 profile 通常不满足条件。
 
 1. 签名安装后，在说明页确认 App Group 不为空。
 2. 停车后连接 CarPlay，切换几张内置图片壁纸生成缓存。
