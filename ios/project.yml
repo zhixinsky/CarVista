@@ -36,6 +36,17 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: Sources/Bridge.h
         HEADER_SEARCH_PATHS: '$(SRCROOT)/Vendor/WQFiles'
         CLANG_ENABLE_OBJC_ARC: YES
+  CarCanvasModelTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [ModelTests]
+    dependencies:
+      - target: CarCanvasWorkshop
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.carcanvas.workshop.modeltests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: '5.0'
   CarCanvasUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -53,5 +64,6 @@ schemes:
       targets:
         CarCanvasWorkshop: all
         CarCanvasUITests: [test]
+        CarCanvasModelTests: [test]
     test:
-      targets: [CarCanvasUITests]
+      targets: [CarCanvasModelTests, CarCanvasUITests]
