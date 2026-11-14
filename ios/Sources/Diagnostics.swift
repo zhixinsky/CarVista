@@ -26,18 +26,19 @@ enum Diagnostics {
     static func scan(root: URL, system: String) -> ScanReport {
         let scoped = root.startAccessingSecurityScopedResource()
         defer { if scoped { root.stopAccessingSecurityScopedResource() } }
+        let scanRoot = root.standardizedFileURL.resolvingSymlinksInPath()
         var records: [FileRecord] = []
         var errors: [String] = []
         var truncated = false
         let manager = FileManager.default
         do {
-            _ = try manager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            _ = try manager.contentsOfDirectory(at: scanRoot, includingPropertiesForKeys: nil)
         } catch {
             return ScanReport(date: Date(), system: system, root: root.path,
                 status: "无法读取目录", files: [], errors: [describe(error)], truncated: false)
         }
         let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey]
-        guard let enumerator = manager.enumerator(at: root, includingPropertiesForKeys: keys,
+        guard let enumerator = manager.enumerator(at: scanRoot, includingPropertiesForKeys: keys,
             options: [], errorHandler: { url, error in
                 errors.append("\(url.lastPathComponent): \(describe(error))")
                 return errors.count < 100
@@ -53,7 +54,10 @@ enum Diagnostics {
                 let values = try url.resourceValues(forKeys: Set(keys))
                 if values.isSymbolicLink == true { enumerator.skipDescendants(); continue }
                 guard values.isRegularFile == true else { continue }
-                let relative = String(url.path.dropFirst(root.path.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+                let prefix = scanRoot.path.hasSuffix("/") ? scanRoot.path : scanRoot.path + "/"
+                guard path.hasPrefix(prefix) else { errors.append("文件路径不在选定目录内"); continue }
+                let relative = String(path.dropFirst(prefix.count))
                 records.append(FileRecord(path: relative, bytes: values.fileSize ?? 0,
                     modified: values.contentModificationDate))
             } catch { errors.append("\(url.lastPathComponent): \(describe(error))") }

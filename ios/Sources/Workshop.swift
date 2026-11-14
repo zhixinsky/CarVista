@@ -40,7 +40,7 @@ final class WorkshopModel: ObservableObject {
     @Published var root = ""
     @Published var reportURL: URL?
     let group = CCEngine.appGroup()
-    static var library: URL {
+    nonisolated static var library: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Wallpapers")
     }
     private let queue = DispatchQueue(label: "carcanvas.io", qos: .userInitiated)
@@ -233,7 +233,7 @@ struct EditorView: View {
                     model.save(image: image, target: target) { saved = $0 }
                 }.disabled(source == nil || model.busy)
                 if let saved { ShareLink("导出 CPBitmap", item: saved.bitmap) }
-            }
+            }.disabled(model.busy)
             Section("应用") {
                 Text("只替换上面选中的一个文件。写入前自动备份，完成后校验；另一种外观需单独操作。")
                 Button("备份并替换这个壁纸") { confirm = true }.disabled(saved == nil || model.busy)

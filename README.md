@@ -1,8 +1,10 @@
-> **Development fork:** The new diagnostic source is in [`ios/`](ios/README.md).
-> It currently scans user-selected folders only; iOS 27.2 system-container access
-> and CarPlay wallpaper replacement are not implemented or verified.
-> GitHub Actions builds an unsigned prototype IPA; the original IPA in `build/`
-> is an upstream release, not a build of this new source.
+> **CarCanvas Workshop 0.2:** New source and installation instructions are in
+> [`ios/`](ios/README.md). This experimental app implements WQ container access,
+> photo cropping, CPBitmap export, wallpaper replacement, backup and restore.
+> iOS 27.2 and actual CarPlay display results still require device validation.
+> GitHub Actions builds `CarCanvasWorkshop-resign.ipa`, which requires re-signing
+> with a valid App Group. The IPA in `build/` below is the original upstream app,
+> not a build of Workshop; its signing instructions do not apply to Workshop.
 
 <p align="center">
   <img src="docs/app-icon.png" alt="CarCanvas" width="128" height="128" />
