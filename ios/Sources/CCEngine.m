@@ -67,6 +67,8 @@ static UIImage *CCDecode(NSData *data) {
             decode = (Decoder)dlsym(handle, "CPBitmapCreateImagesFromData");
             if (!decode) decode = (Decoder)dlsym(handle, "_CPBitmapCreateImagesFromData");
         }
+        if (!decode) decode = (Decoder)dlsym(RTLD_DEFAULT, "CPBitmapCreateImagesFromData");
+        if (!decode) decode = (Decoder)dlsym(RTLD_DEFAULT, "_CPBitmapCreateImagesFromData");
     });
     if (!decode) return nil;
     CFArrayRef array = decode((__bridge CFDataRef)data, NULL, 1, NULL);

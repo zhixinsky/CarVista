@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
     if !condition() { fatalError(message) }

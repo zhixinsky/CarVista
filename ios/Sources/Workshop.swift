@@ -254,7 +254,7 @@ struct EditorView: View {
                       let cg = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, [
                         kCGImageSourceCreateThumbnailFromImageAlways: true,
                         kCGImageSourceCreateThumbnailWithTransform: true,
-                        kCGImageSourceThumbnailMaxPixelSize: 8192] as CFDictionary) else { throw CocoaError(.fileReadCorruptFile) }
+                        kCGImageSourceThumbnailMaxPixelSize: 4096] as CFDictionary) else { throw CocoaError(.fileReadCorruptFile) }
                 source = UIImage(cgImage: cg); zoom = 1; x = 0.5; y = 0.5
             } catch { source = nil; self.error = error.localizedDescription }
             loading = false

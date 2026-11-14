@@ -10,7 +10,7 @@ targets:
     sources:
       - Sources
       - path: Vendor/WQFiles
-        excludes: [LICENSE]
+        excludes: [LICENSE, tests]
       - path: LICENSE
         buildPhase: resources
       - path: Vendor/NOTICE.md

@@ -22,6 +22,16 @@ jobs:
           set -euo pipefail
           swiftc Sources/CropGeometry.swift Sources/Diagnostics.swift Tests/main.swift -o /tmp/carcanvas-tests
           /tmp/carcanvas-tests
+      - name: Test backup, stale writes and container parsing
+        working-directory: ios/Vendor/WQFiles
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang -fobjc-arc -fmodules -I. -framework Foundation tests/WQAccessSafetyTests.m -o /tmp/cc-safety-tests
+          /tmp/cc-safety-tests
+          xcrun --sdk macosx clang -fobjc-arc -fmodules -I. -framework Foundation WQLocalization.m WQCore.m tests/WQAccessMutationTests.m -o /tmp/cc-mutation-tests
+          /tmp/cc-mutation-tests
+          xcrun --sdk macosx clang -fobjc-arc -fmodules -I. -DWQ_LS_TESTING -framework Foundation WQLaunchServices.m WQLocalization.m tests/WQLaunchServicesTests.m -o /tmp/cc-parser-tests
+          /tmp/cc-parser-tests
       - name: Generate project and compile for physical iPhone
         working-directory: ios
         run: |
