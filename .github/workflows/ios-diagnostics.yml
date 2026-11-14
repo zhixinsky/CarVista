@@ -65,3 +65,25 @@ jobs:
             ios/output/*.ipa
             ios/output/SHA256SUMS
           if-no-files-found: error
+      - name: Test real interface on iPhone simulator
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if "iPhone" in x["name"]))')
+          xcodebuild -project CarCanvasWorkshop.xcodeproj -scheme CarCanvasWorkshop \
+            -sdk iphonesimulator -destination "platform=iOS Simulator,id=$device" \
+            -parallel-testing-enabled NO -resultBundlePath output/UI.xcresult \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test
+      - name: Export interface screenshots
+        if: always()
+        working-directory: ios
+        run: |
+          if [ -d output/UI.xcresult ]; then
+            xcrun xcresulttool export attachments --path output/UI.xcresult --output-path output/screenshots
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: CarCanvas-interface-screenshots
+          path: ios/output/screenshots/
+          if-no-files-found: ignore

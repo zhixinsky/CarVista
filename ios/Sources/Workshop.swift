@@ -6,7 +6,7 @@ import ImageIO
 @main
 struct CarCanvasWorkshopApp: App {
     @StateObject private var model = WorkshopModel()
-    var body: some Scene { WindowGroup { WorkshopView().environmentObject(model) } }
+    var body: some Scene { WindowGroup { CanvasHomeView().environmentObject(model) } }
 }
 
 struct WallpaperTarget: Identifiable {
@@ -25,8 +25,11 @@ struct SavedWallpaper: Identifiable, Codable {
     let width: Int
     let height: Int
     let mode: String
+    var batchID: UUID? = nil
+    var customName: String? = nil
     var bitmap: URL { WorkshopModel.library.appendingPathComponent("\(id).cpbitmap") }
     var preview: URL { WorkshopModel.library.appendingPathComponent("\(id).jpg") }
+    var originalImage: URL { WorkshopModel.library.appendingPathComponent("\(id).png") }
 }
 
 @MainActor
@@ -57,7 +60,7 @@ final class WorkshopModel: ObservableObject {
         backups = CCEngine.backups() as? [[String: Any]] ?? []
     }
 
-    private func work(_ task: @escaping () -> [String: Any], finish: @escaping ([String: Any]) -> Void) {
+    func work(_ task: @escaping () -> [String: Any], finish: @escaping ([String: Any]) -> Void) {
         guard !busy else { return }
         busy = true
         queue.async {
@@ -131,6 +134,121 @@ final class WorkshopModel: ObservableObject {
             try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
             reportURL = url
         } catch { message = "导出报告失败：\(error.localizedDescription)" }
+    }
+
+    func saveVariants(image: UIImage, modes: [String], completion: @escaping ([SavedWallpaper]) -> Void) {
+        let batch = UUID()
+        let entries = modes.map { SavedWallpaper(id: UUID(), created: Date(), width: Int(image.size.width),
+            height: Int(image.size.height), mode: $0, batchID: batch) }
+        message = "正在保存壁纸…"
+        work({
+            var failure: String?
+            do {
+                guard let jpeg = image.jpegData(compressionQuality: 0.85), let png = image.pngData() else { throw CocoaError(.fileWriteUnknown) }
+                for entry in entries {
+                    let encoded = CCEngine.encode(image, to: entry.bitmap.path) as? [String: Any] ?? [:]
+                    guard encoded["ok"] as? Bool == true else {
+                        failure = encoded["message"] as? String ?? "当前系统无法生成壁纸文件"; break
+                    }
+                    try jpeg.write(to: entry.preview, options: .atomic)
+                    try png.write(to: entry.originalImage, options: .atomic)
+                    try JSONEncoder().encode(entry).write(to: Self.library.appendingPathComponent("\(entry.id).json"), options: .atomic)
+                }
+            } catch { failure = error.localizedDescription }
+            if let failure {
+                for entry in entries {
+                    for url in [entry.bitmap, entry.preview, entry.originalImage, Self.library.appendingPathComponent("\(entry.id).json")] {
+                        try? FileManager.default.removeItem(at: url)
+                    }
+                }
+                return ["ok": false, "message": failure]
+            }
+            return ["ok": true]
+        }) { result in
+            if result["ok"] as? Bool == true {
+                self.history.insert(contentsOf: entries, at: 0)
+                self.message = "已保存到历史记录，可随时应用或分享。"
+                completion(entries)
+            } else {
+                self.message = result["message"] as? String ?? "保存失败"
+                completion([])
+            }
+        }
+    }
+
+    func applyBatch(entries: [SavedWallpaper], targets: [WallpaperTarget], completion: @escaping () -> Void) {
+        guard !targets.isEmpty else { return }
+        message = "正在备份并应用壁纸…"
+        work({
+            var completed = 0
+            for target in targets {
+                guard let entry = entries.first(where: { $0.mode == target.mode }) ?? (entries.count == 1 ? entries.first : nil) else {
+                    return ["ok": false, "message": "已应用 \(completed)/\(targets.count) 个。没有对应外观的壁纸，请重新选择。"]
+                }
+                var source = entry.bitmap.path
+                var temporary: URL?
+                if entry.width != target.width || entry.height != target.height {
+                    guard let image = UIImage(contentsOfFile: entry.originalImage.path) ?? UIImage(contentsOfFile: entry.preview.path),
+                          target.editable else {
+                        return ["ok": false, "message": "已应用 \(completed)/\(targets.count) 个。原图不可用，无法适配车机尺寸。"]
+                    }
+                    let size = CGSize(width: target.width, height: target.height)
+                    let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true; format.preferredRange = .standard
+                    let adjusted = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                        image.draw(in: CropGeometry.rect(source: image.size, target: size, zoom: 1, x: 0.5, y: 0.5))
+                    }
+                    let url = Self.library.appendingPathComponent("apply-\(UUID().uuidString).cpbitmap")
+                    temporary = url
+                    let result = CCEngine.encode(adjusted, to: url.path) as? [String: Any] ?? [:]
+                    if result["ok"] as? Bool != true {
+                        return ["ok": false, "message": "已应用 \(completed)/\(targets.count) 个。\(result["message"] as? String ?? "适配失败")"]
+                    }
+                    source = url.path
+                }
+                let result = CCEngine.apply(target.raw, source: source) as? [String: Any] ?? [:]
+                if let temporary { try? FileManager.default.removeItem(at: temporary) }
+                if result["ok"] as? Bool != true {
+                    return ["ok": false, "message": "已应用 \(completed)/\(targets.count) 个。\(result["message"] as? String ?? "写入失败")。已完成的项目可在备份与恢复中还原。"]
+                }
+                completed += 1
+            }
+            return ["ok": true, "message": "\(completed) 个壁纸已应用，原文件已备份。请重启一次 iPhone，再连接车机查看效果。"]
+        }) { result in
+            self.message = result["message"] as? String ?? "应用失败"
+            self.targets = []
+            self.makeReport()
+            completion()
+        }
+    }
+
+    func deleteHistory(_ entries: [SavedWallpaper]) {
+        guard !busy else { return }
+        var removed = Set<UUID>()
+        var failures = 0
+        for entry in entries {
+            do {
+                // Delete the index last: interrupted removal can be retried.
+                for url in [entry.bitmap, entry.preview, entry.originalImage, Self.library.appendingPathComponent("\(entry.id).json")] {
+                    if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+                }
+                removed.insert(entry.id)
+            } catch { failures += 1 }
+        }
+        history.removeAll { removed.contains($0.id) }
+        message = failures == 0 ? "已删除本地记录，已应用的壁纸和恢复备份未改变。" : "部分记录未能删除，请重试。"
+    }
+
+    func renameHistory(_ entries: [SavedWallpaper], name: String) {
+        let title = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(60))
+        guard !busy, !title.isEmpty else { return }
+        for entry in entries {
+            guard let index = history.firstIndex(where: { $0.id == entry.id }) else { continue }
+            var updated = history[index]; updated.customName = title
+            do {
+                try JSONEncoder().encode(updated).write(to: Self.library.appendingPathComponent("\(entry.id).json"), options: .atomic)
+                history[index] = updated
+            } catch { message = "重命名失败：\(error.localizedDescription)" }
+        }
     }
 }
 
