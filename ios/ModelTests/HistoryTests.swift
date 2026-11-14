@@ -4,7 +4,7 @@ import UIKit
 
 final class HistoryTests: XCTestCase {
     @MainActor
-    func testDifferentSizesReachAdaptationAndMissingOriginalIsReported() async throws {
+    func testDifferentSizesReachDirectWriterWithoutAdaptation() async throws {
         let model = WorkshopModel()
         let entry = SavedWallpaper(id: UUID(), created: Date(), width: 7879, height: 2160,
             mode: "深色", preservePixels: true)
@@ -13,7 +13,8 @@ final class HistoryTests: XCTestCase {
             model.applyBatch(entries: [entry], targets: [target]) { continuation.resume() }
         }
         XCTAssertFalse(model.busy)
-        XCTAssertTrue(model.message.contains("原图不可用"))
+        XCTAssertTrue(model.message.contains("目标不属于"))
+        XCTAssertFalse(model.message.contains("原图不可用"))
         XCTAssertFalse(model.message.contains("相同像素尺寸"))
     }
     @MainActor

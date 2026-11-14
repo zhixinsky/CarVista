@@ -182,7 +182,7 @@ final class WorkshopModel: ObservableObject {
         }
     }
 
-    func applyBatch(entries: [SavedWallpaper], targets: [WallpaperTarget], verticalPosition: Double = 0.5, completion: @escaping () -> Void) {
+    func applyBatch(entries: [SavedWallpaper], targets: [WallpaperTarget], completion: @escaping () -> Void) {
         guard !busy else { return }
         guard !targets.isEmpty, targets.allSatisfy(\.editable),
               Set(targets.map(\.id)).count == targets.count, !entries.isEmpty else {
@@ -198,30 +198,8 @@ final class WorkshopModel: ObservableObject {
                 guard let entry = entries.first(where: { $0.mode == target.mode }) ?? (entries.count == 1 ? entries.first : nil) else {
                     return ["ok": false, "message": "已应用 \(completed)/\(targets.count) 个。没有对应外观的壁纸，请重新选择。"]
                 }
-                var source = entry.bitmap.path
-                var temporary: URL?
-                defer { if let temporary { try? FileManager.default.removeItem(at: temporary) } }
-                if entry.width != target.width || entry.height != target.height {
-                    guard let image = UIImage(contentsOfFile: entry.originalImage.path) ?? UIImage(contentsOfFile: entry.preview.path),
-                          let cg = image.cgImage, cg.width == entry.width, cg.height == entry.height,
-                          target.editable else {
-                        return ["ok": false, "message": "已应用 \(completed)/\(targets.count) 个。原图不可用，无法适配车机尺寸。"]
-                    }
-                    let size = CGSize(width: target.width, height: target.height)
-                    let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true; format.preferredRange = .standard
-                    let adjusted = UIGraphicsImageRenderer(size: size, format: format).image { context in
-                        UIColor.black.setFill()
-                        context.fill(CGRect(origin: .zero, size: size))
-                        image.draw(in: CropGeometry.fit(source: image.size, target: size, verticalPosition: verticalPosition))
-                    }
-                    let url = Self.library.appendingPathComponent("apply-\(UUID().uuidString).cpbitmap")
-                    temporary = url
-                    let result = CCEngine.encode(adjusted, to: url.path) as? [String: Any] ?? [:]
-                    if result["ok"] as? Bool != true {
-                        return ["ok": false, "message": "已应用 \(completed)/\(targets.count) 个。\(result["message"] as? String ?? "适配失败")"]
-                    }
-                    source = url.path
-                }
+                // Write the saved CPBitmap bytes directly; never resize to the old cache.
+                let source = entry.bitmap.path
                 let result = CCEngine.apply(target.raw, source: source) as? [String: Any] ?? [:]
                 if result["ok"] as? Bool != true {
                     return ["ok": false, "message": "已应用 \(completed)/\(targets.count) 个。\(result["message"] as? String ?? "写入失败")。已完成的项目可在备份与恢复中还原。"]

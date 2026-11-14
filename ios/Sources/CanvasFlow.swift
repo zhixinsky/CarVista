@@ -113,8 +113,8 @@ struct ComposeWallpaperView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("保留完整原图（不裁剪）", isOn: $preservePixels)
-                if preservePixels { Text("保留导入图片。应用时按车机缓存尺寸等比例适配，完整显示，不拉伸；确认前可预览位置。")
+                Toggle("原尺寸直接替换（不处理画面）", isOn: $preservePixels)
+                if preservePixels { Text("按导入图片的原始像素生成并直接写入，不缩放、不裁剪、不补边，不要求与旧缓存尺寸相同。")
                     .font(.caption).foregroundStyle(.secondary) }
                 PhotosPicker(selection: $selection, matching: .images) {
                     Label(image == nil ? "选择图片" : "更换图片", systemImage: "photo.badge.plus")
@@ -162,7 +162,7 @@ struct ComposeWallpaperView: View {
                         Text("宽屏 1920 × 720").tag(1920)
                         Text("标准 1280 × 720").tag(1280)
                     }
-                    Text("应用时等比例适配车机缓存，完整显示此处制作的画面。")
+                    Text("应用时直接写入此处制作的文件，不再按旧缓存尺寸处理。")
                         .font(.caption).foregroundStyle(.secondary)
                 } }
                 Button("清除已保存的设置", role: .destructive) { clear = true }.disabled(model.busy || loading)
@@ -288,7 +288,7 @@ struct WallpaperDetailView: View {
                             .aspectRatio(CGFloat(collection.first.width) / CGFloat(collection.first.height), contentMode: .fit).clipped()
                         Text(collection.title).font(.headline)
                         Text("\(collection.mode) · \(collection.first.width) × \(collection.first.height)").foregroundStyle(.secondary)
-                        if collection.first.preservePixels == true { Text("完整原图 · 应用时等比例适配").font(.caption).foregroundStyle(.secondary) }
+                        if collection.first.preservePixels == true { Text("原尺寸直接写入").font(.caption).foregroundStyle(.secondary) }
                     }
                     Section {
                         Button { applying = true } label: { Label("应用到 CarPlay 壁纸", systemImage: "car.side.fill").font(.headline) }.disabled(model.busy)
@@ -340,7 +340,7 @@ struct ApplyWallpaperView: View {
         List {
             Section {
                 Text(finished ? model.message : "选择要替换的内置壁纸。原壁纸会自动备份。")
-                if !finished { Text("尺寸不同时等比例适配，不拉伸、不裁掉画面。应用前可预览并调整上下位置。").font(.caption).foregroundStyle(.secondary) }
+                if !finished { Text("直接写入已保存的 CPBitmap，不按旧缓存尺寸缩放、裁剪或补边。车机如何显示由系统决定。").font(.caption).foregroundStyle(.secondary) }
                 if model.busy { ProgressView("正在处理，请保持应用在前台…") }
             }
             if !finished {
@@ -369,61 +369,9 @@ struct ApplyWallpaperView: View {
             .toolbar { Button(finished ? "完成" : "关闭") { dismiss() }.disabled(model.busy) }
             .interactiveDismissDisabled(model.busy)
             .task { if model.targets.isEmpty && !model.busy && !model.group.isEmpty { model.scan(deep: false) } }
-            .sheet(isPresented: $confirmation) {
-                WallpaperPlacementView(entries: entries, targets: selected) { position in
-                    confirmation = false
-                    model.applyBatch(entries: entries, targets: selected, verticalPosition: position) { finished = true }
-                }
+            .confirmationDialog("备份并按原尺寸直接替换 \(selected.count) 个文件？", isPresented: $confirmation, titleVisibility: .visible) {
+                Button("原尺寸直接替换") { model.applyBatch(entries: entries, targets: selected) { finished = true } }
             }
-    }
-}
-
-private struct WallpaperPlacementView: View {
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject var model: WorkshopModel
-    let entries: [SavedWallpaper]
-    let targets: [WallpaperTarget]
-    let apply: (Double) -> Void
-    @State private var position = 0.5
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    Text("这是将写入缓存的完整画布。黑色区域为补边；车机实际显示区域可能不同，接缝仍需上车确认。")
-                    Text("保留整张画面和比例，仅调整输出像素尺寸，不放大裁剪。")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                ForEach(targets) { target in
-                    if let entry = entries.first(where: { $0.mode == target.mode }) ?? entries.first {
-                        Section("\(target.mode) · \(target.width) × \(target.height)") {
-                            GeometryReader { proxy in
-                                let canvas = CGSize(width: target.width, height: target.height)
-                                let rect = CropGeometry.fit(source: CGSize(width: entry.width, height: entry.height), target: canvas, verticalPosition: position)
-                                let scale = proxy.size.width / canvas.width
-                                ZStack(alignment: .topLeading) {
-                                    Color.black
-                                    if let thumbnail = UIImage(contentsOfFile: entry.preview.path) {
-                                        Image(uiImage: thumbnail).resizable()
-                                            .frame(width: rect.width * scale, height: rect.height * scale)
-                                            .offset(x: rect.minX * scale, y: rect.minY * scale)
-                                    }
-                                }.clipped()
-                            }.aspectRatio(CGFloat(target.width) / CGFloat(target.height), contentMode: .fit)
-                            Text("原图：\(entry.width) × \(entry.height)").font(.caption)
-                        }
-                    }
-                }
-                Section("上下位置") {
-                    HStack { Text("上"); Slider(value: $position, in: 0...1); Text("下") }
-                    Button("恢复居中") { position = 0.5 }
-                }
-                Section {
-                    Button("备份并应用") { apply(position) }.disabled(model.busy)
-                }
-            }.navigationTitle("应用预览").navigationBarTitleDisplayMode(.inline)
-                .toolbar { Button("取消") { dismiss() } }
-        }
     }
 }
 

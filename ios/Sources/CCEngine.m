@@ -197,8 +197,8 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellatio
     if (!attributes || ![attributes.fileType isEqualToString:NSFileTypeRegular] || attributes.fileSize == 0) return CCFail(@"源文件缺失或无效");
     NSData *data = [NSData dataWithContentsOfFile:source options:NSDataReadingMappedIfSafe error:nil];
     UIImage *newImage = CCDecode(data);
-    UIImage *oldImage = CCDecode(wq_read(path, 0, NULL));
-    if (!newImage.CGImage || !oldImage.CGImage || CGImageGetWidth(newImage.CGImage) != CGImageGetWidth(oldImage.CGImage) || CGImageGetHeight(newImage.CGImage) != CGImageGetHeight(oldImage.CGImage)) return CCFail(@"源图片与目标缓存尺寸不一致");
+    // Intentionally accept different dimensions: write the source bytes as-is.
+    if (!newImage.CGImage) return CCFail(@"源 CPBitmap 无法解码，未写入");
     NSString *error = nil;
     if (!wq_write_if_unchanged(path, data, expected, &error)) return CCFail(error);
     return @{@"ok":@YES, @"message":@"已备份并写入，回读校验通过。请重启 iPhone 后连接车机验证；应用无法自动确认车机显示结果。"};
