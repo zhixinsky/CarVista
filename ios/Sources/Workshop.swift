@@ -182,7 +182,7 @@ final class WorkshopModel: ObservableObject {
         }
     }
 
-    func applyBatch(entries: [SavedWallpaper], targets: [WallpaperTarget], completion: @escaping () -> Void) {
+    func applyBatch(entries: [SavedWallpaper], targets: [WallpaperTarget], verticalPosition: Double = 0.5, completion: @escaping () -> Void) {
         guard !busy else { return }
         guard !targets.isEmpty, targets.allSatisfy(\.editable),
               Set(targets.map(\.id)).count == targets.count, !entries.isEmpty else {
@@ -190,14 +190,6 @@ final class WorkshopModel: ObservableObject {
         }
         guard targets.allSatisfy({ target in entries.count == 1 || entries.contains(where: { $0.mode == target.mode }) }) else {
             message = "没有对应外观的壁纸，请重新选择。"; completion(); return
-        }
-        // Preflight the whole batch before changing either appearance.
-        for target in targets {
-            if let entry = entries.first(where: { $0.mode == target.mode }) ?? entries.first,
-               entry.preservePixels == true, (entry.width != target.width || entry.height != target.height) {
-                message = "原图为 \(entry.width) × \(entry.height)，所选缓存为 \(target.width) × \(target.height)。为保持原图不缩放，本次未写入。请使用与缓存相同像素尺寸的图片。"
-                completion(); return
-            }
         }
         message = "正在备份并应用壁纸…"
         work({
@@ -211,13 +203,16 @@ final class WorkshopModel: ObservableObject {
                 defer { if let temporary { try? FileManager.default.removeItem(at: temporary) } }
                 if entry.width != target.width || entry.height != target.height {
                     guard let image = UIImage(contentsOfFile: entry.originalImage.path) ?? UIImage(contentsOfFile: entry.preview.path),
+                          let cg = image.cgImage, cg.width == entry.width, cg.height == entry.height,
                           target.editable else {
                         return ["ok": false, "message": "已应用 \(completed)/\(targets.count) 个。原图不可用，无法适配车机尺寸。"]
                     }
                     let size = CGSize(width: target.width, height: target.height)
                     let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true; format.preferredRange = .standard
-                    let adjusted = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-                        image.draw(in: CropGeometry.rect(source: image.size, target: size, zoom: 1, x: 0.5, y: 0.5))
+                    let adjusted = UIGraphicsImageRenderer(size: size, format: format).image { context in
+                        UIColor.black.setFill()
+                        context.fill(CGRect(origin: .zero, size: size))
+                        image.draw(in: CropGeometry.fit(source: image.size, target: size, verticalPosition: verticalPosition))
                     }
                     let url = Self.library.appendingPathComponent("apply-\(UUID().uuidString).cpbitmap")
                     temporary = url

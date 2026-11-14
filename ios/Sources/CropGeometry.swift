@@ -3,6 +3,16 @@ import Foundation
 import CoreGraphics
 
 enum CropGeometry {
+    static func fit(source: CGSize, target: CGSize, verticalPosition: Double = 0.5) -> CGRect {
+        guard source.width.isFinite, source.height.isFinite, target.width.isFinite, target.height.isFinite,
+              verticalPosition.isFinite, source.width > 0, source.height > 0,
+              target.width > 0, target.height > 0 else { return .zero }
+        let scale = min(target.width / source.width, target.height / source.height)
+        let size = CGSize(width: source.width * scale, height: source.height * scale)
+        return CGRect(x: (target.width - size.width) / 2,
+                      y: (target.height - size.height) * CGFloat(min(1, max(0, verticalPosition))),
+                      width: size.width, height: size.height)
+    }
     // Position 0 is the left/top edge, 1 the right/bottom edge. Rendering and
     // preview share this calculation, so the saved crop matches the preview.
     static func rect(source: CGSize, target: CGSize, zoom: Double, x: Double, y: Double) -> CGRect {

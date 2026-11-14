@@ -68,3 +68,16 @@ for (width, height) in [(8193, 1000), (8192, 8192), (12000, 4000)] {
 expect(CropGeometry.rect(source: .init(width: 100, height: 100), target: .init(width: 10, height: 10), zoom: .nan, x: 0.5, y: 0.5) == .zero, "NaN reached renderer")
 expect(CropGeometry.rect(source: .init(width: CGFloat.infinity, height: 100), target: .init(width: 10, height: 10), zoom: 1, x: 0.5, y: 0.5) == .zero, "infinite size reached renderer")
 print("PASS: invalid dimensions, integer overflow and non-finite crop rejection")
+
+let cacheSize = CGSize(width: 2420, height: 1668)
+for source in [CGSize(width: 7879, height: 2160), CGSize(width: 5253, height: 1440), CGSize(width: 4889, height: 1340)] {
+    for position in [0.0, 0.5, 1.0] {
+        let fitted = CropGeometry.fit(source: source, target: cacheSize, verticalPosition: position)
+        expect(abs(fitted.width - 2420) < 0.001, "wide wallpaper must span cache width")
+        expect(fitted.minX >= -0.001 && fitted.minY >= -0.001 && fitted.maxX <= 2420.001 && fitted.maxY <= 1668.001, "image was cropped")
+        expect(abs(fitted.width / fitted.height - source.width / source.height) < 0.0001, "image was stretched")
+        expect(fitted.height > 663 && fitted.height < 664, "unexpected visible image height")
+    }
+}
+expect(CropGeometry.fit(source: cacheSize, target: cacheSize) == CGRect(origin: .zero, size: cacheSize), "matching size changed")
+print("PASS: 2420x1668 fit preserves all three supplied aspect ratios at every vertical alignment")
