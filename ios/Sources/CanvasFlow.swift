@@ -36,7 +36,7 @@ struct CanvasHomeView: View {
                 VStack(spacing: 16) {
                     HStack(spacing: 18) {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("CarCanvas").font(.largeTitle.bold())
+                            Text("CarCanvas").font(.largeTitle.bold()).minimumScaleFactor(0.75).lineLimit(1)
                             Text("把喜欢的风景，带上车。").font(.subheadline)
                             Text("v\(CanvasTheme.version)").font(.caption).opacity(0.8)
                         }
@@ -81,11 +81,11 @@ private struct HomeRow: View {
             Image(systemName: symbol).font(.title2).foregroundStyle(CanvasTheme.accent)
                 .frame(width: 52, height: 56).background(CanvasTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 16))
             VStack(alignment: .leading, spacing: 7) {
-                Text(title).font(.headline).foregroundStyle(.primary)
-                Text(subtitle).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(title).font(.headline).foregroundStyle(Color.primary)
+                Text(subtitle).font(.subheadline).foregroundStyle(Color.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            Image(systemName: "chevron.right").font(.footnote.bold()).foregroundStyle(.tertiary)
+            Image(systemName: "chevron.right").font(.footnote.bold()).foregroundStyle(Color.gray.opacity(0.65))
         }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 23))
             .contentShape(Rectangle())
@@ -142,6 +142,7 @@ struct ComposeWallpaperView: View {
                 Button { modePicker = true } label: {
                     Label("生成本地 CPBitmap", systemImage: "square.and.arrow.down")
                         .font(.headline).padding(.vertical, 7)
+                        .foregroundStyle(image == nil || loading || model.busy ? Color.secondary : CanvasTheme.accent)
                 }.disabled(image == nil || loading || model.busy).accessibilityIdentifier("wallpaper.generate")
                 if model.busy { ProgressView("正在保存…") }
             } footer: { Text("保存到历史记录。只有确认“应用到 CarPlay”后，才会更改车机壁纸。") }
