@@ -32,7 +32,7 @@
 
 ## 安装与测试
 
-GitHub Actions 产物为 `LvMu-resign.ipa`。它带有 ad-hoc 签名和 App Group entitlement，**不能直接安装**，必须通过签名工具授予有效 App Group 并重新签名。AltStore / SideStore 等支持 App Group 的流程可作为选择；仅保留 entitlement 文本不代表具备权限。普通企业通配符 profile 通常不满足条件。
+GitHub Actions 产物为 `CarVista-resign.ipa`。它带有 ad-hoc 签名和 App Group entitlement，**不能直接安装**，必须通过签名工具授予有效 App Group 并重新签名。AltStore / SideStore 等支持 App Group 的流程可作为选择；仅保留 entitlement 文本不代表具备权限。普通企业通配符 profile 通常不满足条件。
 
 1. 签名安装后，在说明页确认 App Group 不为空。
 2. 停车后连接 CarPlay，切换几张内置图片壁纸生成缓存。

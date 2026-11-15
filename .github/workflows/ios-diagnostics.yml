@@ -1,4 +1,4 @@
-name: Build LvMu IPA
+name: Build CarVista IPA
 on:
   push:
     branches: [main]
@@ -58,11 +58,11 @@ jobs:
           mkdir -p output/Payload
           ditto "$app" output/Payload/CarCanvasWorkshop.app
           cd output
-          /usr/bin/zip -qry LvMu-resign.ipa Payload
-          shasum -a 256 LvMu-resign.ipa > SHA256SUMS
+          /usr/bin/zip -qry CarVista-resign.ipa Payload
+          shasum -a 256 CarVista-resign.ipa > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: LvMu-resign
+          name: CarVista-resign
           path: |
             ios/output/*.ipa
             ios/output/SHA256SUMS
@@ -86,6 +86,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: LvMu-interface-screenshots
+          name: CarVista-interface-screenshots
           path: ios/output/screenshots/
           if-no-files-found: ignore
