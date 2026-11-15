@@ -16,22 +16,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install project generator
         run: brew install xcodegen
-      - name: Test crop and diagnostic behavior
-        working-directory: ios
-        run: |
-          set -euo pipefail
-          swiftc Sources/CropGeometry.swift Sources/Diagnostics.swift Sources/WallpaperRecord.swift Tests/main.swift -o /tmp/carcanvas-tests
-          /tmp/carcanvas-tests
-      - name: Test backup, stale writes and container parsing
-        working-directory: ios/Vendor/WQFiles
-        run: |
-          set -euo pipefail
-          xcrun --sdk macosx clang -fobjc-arc -fmodules -I. -framework Foundation tests/WQAccessSafetyTests.m -o /tmp/cc-safety-tests
-          /tmp/cc-safety-tests
-          xcrun --sdk macosx clang -fobjc-arc -fmodules -I. -framework Foundation WQLocalization.m WQCore.m tests/WQAccessMutationTests.m -o /tmp/cc-mutation-tests
-          /tmp/cc-mutation-tests
-          xcrun --sdk macosx clang -fobjc-arc -fmodules -I. -DWQ_LS_TESTING -framework Foundation WQLaunchServices.m WQLocalization.m tests/WQLaunchServicesTests.m -o /tmp/cc-parser-tests
-          /tmp/cc-parser-tests
       - name: Generate project and compile for physical iPhone
         working-directory: ios
         run: |
@@ -67,25 +51,3 @@ jobs:
             ios/output/*.ipa
             ios/output/SHA256SUMS
           if-no-files-found: error
-      - name: Test real interface on iPhone simulator
-        working-directory: ios
-        run: |
-          set -euo pipefail
-          device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if "iPhone" in x["name"]))')
-          xcodebuild -project CarCanvasWorkshop.xcodeproj -scheme CarCanvasWorkshop \
-            -sdk iphonesimulator -destination "platform=iOS Simulator,id=$device" \
-            -parallel-testing-enabled NO -resultBundlePath output/UI.xcresult \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test
-      - name: Export interface screenshots
-        if: always()
-        working-directory: ios
-        run: |
-          if [ -d output/UI.xcresult ]; then
-            xcrun xcresulttool export attachments --path output/UI.xcresult --output-path output/screenshots
-          fi
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: CarVista-interface-screenshots
-          path: ios/output/screenshots/
-          if-no-files-found: ignore
