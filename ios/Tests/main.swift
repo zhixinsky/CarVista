@@ -69,3 +69,19 @@ expect(CropGeometry.rect(source: .init(width: 100, height: 100), target: .init(w
 expect(CropGeometry.rect(source: .init(width: CGFloat.infinity, height: 100), target: .init(width: 10, height: 10), zoom: 1, x: 0.5, y: 0.5) == .zero, "infinite size reached renderer")
 print("PASS: invalid dimensions, integer overflow and non-finite crop rejection")
 
+expect(WallpaperPreset.standard.size() == CGSize(width: 1440, height: 810), "standard preset wrong")
+expect(WallpaperPreset.wide.size() == CGSize(width: 1920, height: 810), "wide preset wrong")
+expect(WallpaperPreset.panoramic.size() == CGSize(width: 2560, height: 810), "panoramic preset wrong")
+expect(WallpaperPreset.automatic.size() == CGSize(width: 1920, height: 810), "offline automatic fallback wrong")
+expect(WallpaperPreset.automatic.size(detected: CGSize(width: 2420, height: 1668)) == CGSize(width: 2420, height: 1668), "automatic ignored detected cache")
+for preset in WallpaperPreset.allCases {
+    expect(preset.crops == (preset == .standard), "only standard should crop foreground")
+    for source in [CGSize(width: 800, height: 1200), CGSize(width: 1200, height: 800), CGSize(width: 7879, height: 2160)] {
+        let target = preset.size()
+        let fit = CropGeometry.fit(source: source, target: target)
+        expect(fit.minX >= -0.01 && fit.minY >= -0.01 && fit.maxX <= target.width + 0.01 && fit.maxY <= target.height + 0.01, "fit cropped foreground")
+        expect(abs(fit.width / fit.height - source.width / source.height) < 0.001, "fit stretched foreground")
+    }
+}
+print("PASS: four presets, automatic detection, full-image fit and standard-only crop")
+

@@ -16,9 +16,10 @@ final class NavigationTests: XCTestCase {
         capture(app, "01-Home")
         app.buttons["home.wallpaper"].tap()
         XCTAssertTrue(app.navigationBars["壁纸"].waitForExistence(timeout: 5))
+        capture(app, "02-Wallpaper-NoCarRequired")
+        app.swipeUp()
         XCTAssertTrue(app.buttons["wallpaper.generate"].exists)
         XCTAssertFalse(app.buttons["wallpaper.generate"].isEnabled)
-        capture(app, "02-Wallpaper-NoCarRequired")
         app.navigationBars.buttons.element(boundBy: 0).tap()
         app.buttons["home.history"].tap()
         XCTAssertTrue(app.navigationBars["历史记录"].waitForExistence(timeout: 5))
@@ -40,5 +41,30 @@ final class NavigationTests: XCTestCase {
         capture(app, "06-FirstLaunchGuide")
         app.buttons["guide.done"].tap()
         XCTAssertTrue(app.buttons["home.wallpaper"].waitForExistence(timeout: 5))
+    }
+    func testMakerPresetsAndAdjustment() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-CCGuideSeen", "YES", "-MakerUITestFixture"]
+        app.launch()
+        app.buttons["home.wallpaper"].tap()
+        XCTAssertTrue(app.buttons["maker.adjust"].waitForExistence(timeout: 15))
+        capture(app, "07-Maker-Photo")
+        app.swipeUp()
+        let presets = app.segmentedControls["maker.presets"]
+        XCTAssertTrue(presets.waitForExistence(timeout: 5))
+        for name in ["标准", "宽屏", "大连屏", "自动"] {
+            presets.buttons[name].tap()
+            XCTAssertTrue(presets.buttons[name].isSelected)
+            capture(app, "08-Preset-\(name)")
+        }
+        presets.buttons["标准"].tap()
+        app.swipeDown()
+        app.buttons["maker.adjust"].tap()
+        XCTAssertTrue(app.navigationBars["调整壁纸"].waitForExistence(timeout: 5))
+        app.buttons["旋转"].tap()
+        capture(app, "09-Adjustment")
+        app.buttons["还原"].tap()
+        app.buttons["确定"].tap()
+        XCTAssertTrue(app.navigationBars["壁纸"].waitForExistence(timeout: 5))
     }
 }

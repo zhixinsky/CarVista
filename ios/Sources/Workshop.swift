@@ -29,6 +29,8 @@ final class WorkshopModel: ObservableObject {
     @Published var issues: [String] = []
     @Published var root = ""
     @Published var reportURL: URL?
+    @Published var generationProgress = 0.0
+    @Published var lastDetectedWallpaperSize: CGSize?
     let group = CCEngine.appGroup()
     nonisolated static var library: URL {
         WallpaperStorage.library
@@ -36,6 +38,9 @@ final class WorkshopModel: ObservableObject {
     private let queue = DispatchQueue(label: "carcanvas.io", qos: .userInitiated)
 
     init() {
+        let width = UserDefaults.standard.integer(forKey: "LMAutoWidth")
+        let height = UserDefaults.standard.integer(forKey: "LMAutoHeight")
+        if WallpaperStorage.validSize(width: width, height: height) { lastDetectedWallpaperSize = CGSize(width: width, height: height) }
         do {
             try FileManager.default.createDirectory(at: Self.library, withIntermediateDirectories: true)
             let files = try FileManager.default.contentsOfDirectory(at: Self.library, includingPropertiesForKeys: nil)
@@ -69,6 +74,11 @@ final class WorkshopModel: ObservableObject {
         message = deep ? "正在完整扫描容器，请保持应用在前台。首次可能需要数分钟。" : "正在定位壁纸缓存…"
         work({ CCEngine.discover(deep) as? [String: Any] ?? [:] }) { result in
             self.targets = (result["files"] as? [[String: Any]] ?? []).map { WallpaperTarget(raw: $0) }
+            if let size = self.detectedWallpaperSize {
+                self.lastDetectedWallpaperSize = size
+                UserDefaults.standard.set(Int(size.width), forKey: "LMAutoWidth")
+                UserDefaults.standard.set(Int(size.height), forKey: "LMAutoHeight")
+            }
             self.issues = result["issues"] as? [String] ?? []
             self.root = result["root"] as? String ?? ""
             self.message = result["message"] as? String ?? "扫描失败"

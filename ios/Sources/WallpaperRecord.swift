@@ -24,6 +24,7 @@ struct SavedWallpaper: Identifiable, Codable {
     var batchID: UUID? = nil
     var customName: String? = nil
     var preservePixels: Bool? = nil
+    var outputPreset: String? = nil
     var bitmap: URL { WallpaperStorage.library.appendingPathComponent("\(id).cpbitmap") }
     var preview: URL { WallpaperStorage.library.appendingPathComponent("\(id).jpg") }
     var originalImage: URL { WallpaperStorage.library.appendingPathComponent("\(id).png") }
