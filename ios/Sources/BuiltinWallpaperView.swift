@@ -4,6 +4,7 @@ import SwiftUI
 struct BuiltinWallpaper: Identifiable {
     let id: String
     let title: String
+    var previewName: String { "\(id)Preview" }
     static let all = ["浅海人鱼", "晴日海滩", "夜色海滩", "金马山川", "深海人鱼"].enumerated().map {
         BuiltinWallpaper(id: "Builtin\($0.offset)", title: $0.element)
     }
@@ -22,22 +23,21 @@ struct BuiltinWallpaperView: View {
     let wallpaper: BuiltinWallpaper
     let use: (MakerPhoto) -> Void
     @State private var start = 3004.0
-    @State private var image: UIImage?
     @State private var busy = false
     @State private var error: String?
-    private var width: Int { image?.cgImage?.width ?? 6008 }
-    private var height: Int { image?.cgImage?.height ?? 934 }
+    private let width = 6008
+    private let height = 934
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("拖动分界线，保留右侧画面").font(.headline)
                     Text("左侧阴影不会导出。初始位置为中点，请按实际 CarPlay 边界调整；确定后记住位置供其他内置壁纸使用。").font(.subheadline).foregroundStyle(.secondary)
-                    if let image {
+                    Group {
                         GeometryReader { geometry in
                             let x = geometry.size.width * start / Double(width)
                             ZStack(alignment: .leading) {
-                                Image(uiImage: image).resizable().scaledToFit()
+                                Image(wallpaper.previewName).resizable().scaledToFit()
                                 Rectangle().fill(.black.opacity(0.55)).frame(width: x)
                                 Rectangle().fill(.white).frame(width: 3).offset(x: x - 1.5)
                             }.contentShape(Rectangle()).gesture(DragGesture(minimumDistance: 0).onChanged { value in
@@ -49,7 +49,7 @@ struct BuiltinWallpaperView: View {
                         Text("输出：\(width - Int(start)) × \(height) · 原始像素").font(.subheadline.bold())
                         Button("使用右侧壁纸") { importCrop() }
                             .buttonStyle(.borderedProminent).disabled(busy).accessibilityIdentifier("builtin.use")
-                    } else { ProgressView() }
+                    }.disabled(busy)
                     if busy { ProgressView("正在保存…") }
                     if let error { Text(error).foregroundStyle(.red) }
                 }.padding(20)
@@ -57,19 +57,19 @@ struct BuiltinWallpaperView: View {
                 .toolbar { Button("取消") { dismiss() }.disabled(busy) }
                 .interactiveDismissDisabled(busy)
                 .task {
-                    image = UIImage(named: wallpaper.id)
-                    if image == nil { error = "内置壁纸读取失败" }
                     start = Double(min(width - 1, max(0, savedStart)))
                 }
         }.tint(CanvasTheme.accent)
     }
     private func importCrop() {
-        guard let image, !busy else { return }
+        guard !busy else { return }
         busy = true; error = nil
         let pixel = Int(start)
+        let assetName = wallpaper.id
         Task {
             do {
                 let photo = try await Task.detached(priority: .userInitiated) {
+                    guard let image = UIImage(named: assetName) else { throw CocoaError(.fileReadNoSuchFile) }
                     let crop = try BuiltinWallpaper.cropRight(image, start: pixel)
                     guard let data = crop.pngData() else { throw CocoaError(.fileWriteUnknown) }
                     return try MakerDraft.importPhoto(data: data)

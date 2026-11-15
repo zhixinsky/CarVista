@@ -91,9 +91,12 @@ struct ComposeWallpaperView: View {
                             ForEach(BuiltinWallpaper.all) { item in
                                 Button { builtin = item } label: {
                                     VStack {
-                                        Image(item.id).resizable().scaledToFill().frame(width: 140, height: 65).clipped().clipShape(RoundedRectangle(cornerRadius: 10))
+                                        Image(item.previewName).resizable().scaledToFit()
+                                            .frame(width: 160, height: 44)
+                                            .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
+                                            .accessibilityHidden(true)
                                         Text(item.title).font(.caption)
-                                    }
+                                    }.contentShape(Rectangle())
                                 }.buttonStyle(.plain).disabled(locked)
                             }
                         }
@@ -155,7 +158,7 @@ struct ComposeWallpaperView: View {
                         try? FileManager.default.removeItem(at: incoming.url)
                         problem = "保存壁纸失败：\(error.localizedDescription)"
                     }
-                }
+                }.id(item.id)
             }
             .sheet(isPresented: $adjusting) {
                 if let photo { WallpaperAdjustmentView(photo: photo, preset: preset, outputSize: outputSize) { adjustment in
