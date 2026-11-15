@@ -11,5 +11,6 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSDictionary *)apply:(NSDictionary *)target source:(NSString *)source;
 + (NSArray<NSDictionary *> *)backups;
 + (NSDictionary *)restore:(NSString *)backup;
++ (NSDictionary *)logoutCarPlay;
 @end
 NS_ASSUME_NONNULL_END

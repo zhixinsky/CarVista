@@ -52,7 +52,7 @@ final class NavigationTests: XCTestCase {
         app.swipeUp()
         let presets = app.segmentedControls["maker.presets"]
         XCTAssertTrue(presets.waitForExistence(timeout: 5))
-        for name in ["标准", "宽屏", "大连屏", "自动"] {
+        for name in ["标准", "宽屏", "大连屏", "原尺寸", "融合", "自动"] {
             presets.buttons[name].tap()
             XCTAssertTrue(presets.buttons[name].isSelected)
             capture(app, "08-Preset-\(name)")

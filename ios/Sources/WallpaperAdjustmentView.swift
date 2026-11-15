@@ -21,7 +21,7 @@ struct WallpaperAdjustmentView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 22) {
-                    Text("\(preset.title) · \(Int(outputSize.width)) × \(Int(outputSize.height))").foregroundStyle(.secondary)
+                    Text(outputSize.width > 0 ? "\(preset.title) · \(Int(outputSize.width)) × \(Int(outputSize.height))" : "\(preset.title) · 读取原图尺寸…").foregroundStyle(.secondary)
                     GeometryReader { proxy in
                         Group {
                             if let preview { Image(uiImage: preview).resizable().scaledToFit() }
@@ -41,11 +41,13 @@ struct WallpaperAdjustmentView: View {
                                 if pinchOrigin == nil { pinchOrigin = adjustment.zoom }
                                 adjustment.zoom = min(4, max(1, (pinchOrigin ?? 1) * Double(scale)))
                             }.onEnded { _ in pinchOrigin = nil })
-                    }.aspectRatio(outputSize.width / outputSize.height, contentMode: .fit)
+                    }.aspectRatio(outputSize.width > 0 && outputSize.height > 0 ? outputSize.width / outputSize.height : 16 / 9, contentMode: .fit)
                         .clipShape(RoundedRectangle(cornerRadius: 18)).accessibilityIdentifier("maker.adjust.preview")
                     if preset.crops {
                         Text("拖动移动位置，双指或滑杆调整大小。").font(.subheadline).foregroundStyle(.secondary)
                         HStack { Image(systemName: "minus.magnifyingglass"); Slider(value: $adjustment.zoom, in: 1...4); Image(systemName: "plus.magnifyingglass") }
+                    } else if preset.preservesSourceSize {
+                        Text("按原始像素输出，不缩放。旋转和翻转会改变宽高。").font(.subheadline).foregroundStyle(.secondary)
                     } else {
                         Text("照片始终完整居中，模糊延伸会自动填满空余区域。").font(.subheadline).foregroundStyle(.secondary)
                     }

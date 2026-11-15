@@ -74,8 +74,15 @@ expect(WallpaperPreset.wide.size() == CGSize(width: 1920, height: 810), "wide pr
 expect(WallpaperPreset.panoramic.size() == CGSize(width: 2560, height: 810), "panoramic preset wrong")
 expect(WallpaperPreset.automatic.size() == CGSize(width: 1920, height: 810), "offline automatic fallback wrong")
 expect(WallpaperPreset.automatic.size(detected: CGSize(width: 2420, height: 1668)) == CGSize(width: 2420, height: 1668), "automatic ignored detected cache")
-for preset in WallpaperPreset.allCases {
-    expect(preset.crops == (preset == .standard), "only standard should crop foreground")
+expect(WallpaperPreset.original.preservesSourceSize, "original preset should keep source pixels")
+expect(WallpaperPreset.original.size(source: CGSize(width: 4032, height: 3024)) == CGSize(width: 4032, height: 3024), "original preset resized source")
+expect(!WallpaperPreset.wide.preservesSourceSize, "fixed preset claimed original size")
+for preset in WallpaperPreset.allCases where !preset.preservesSourceSize {
+    expect(preset.crops == (preset == .standard || preset == .split), "crop presets changed")
+    if preset == .split {
+        expect(preset.size() == WallpaperPreset.dashboard, "split canvas wrong")
+        expect(WallpaperPreset.carPlayHalf == CGSize(width: 3004, height: 934), "carplay half wrong")
+    }
     for source in [CGSize(width: 800, height: 1200), CGSize(width: 1200, height: 800), CGSize(width: 7879, height: 2160)] {
         let target = preset.size()
         let fit = CropGeometry.fit(source: source, target: target)
@@ -83,5 +90,5 @@ for preset in WallpaperPreset.allCases {
         expect(abs(fit.width / fit.height - source.width / source.height) < 0.001, "fit stretched foreground")
     }
 }
-print("PASS: four presets, automatic detection, full-image fit and standard-only crop")
+print("PASS: presets, automatic detection, original size, full-image fit and standard-only crop")
 

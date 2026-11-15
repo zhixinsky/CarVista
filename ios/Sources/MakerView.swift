@@ -16,10 +16,21 @@ struct ComposeWallpaperView: View {
     @State private var preview: UIImage?
     @State private var previewing = false
     @State private var initialized = false
+    @State private var sourcePixels: CGSize?
     private var preset: WallpaperPreset { WallpaperPreset(rawValue: presetValue) ?? .automatic }
-    private var outputSize: CGSize { preset.size(detected: model.detectedWallpaperSize) }
     private var photo: MakerPhoto? { photos.indices.contains(current) ? photos[current] : nil }
-    private var outputLabel: String { "\(Int(outputSize.width)) × \(Int(outputSize.height))" }
+    private var outputSize: CGSize {
+        guard preset.preservesSourceSize else { return preset.size(detected: model.detectedWallpaperSize) }
+        guard let sourcePixels, sourcePixels.width > 0, sourcePixels.height > 0 else { return .zero }
+        let turns = (((photo?.adjustment.turns ?? 0) % 4) + 4) % 4
+        return turns % 2 == 0 ? sourcePixels : CGSize(width: sourcePixels.height, height: sourcePixels.width)
+    }
+    private var filesPerPhoto: Int { preset == .split ? 3 : 2 }
+    private var outputLabel: String {
+        if preset == .split { return "6008 × 934 · CarPlay 右半 3004 × 934" }
+        guard outputSize.width > 0, outputSize.height > 0 else { return "读取原图尺寸…" }
+        return "\(Int(outputSize.width)) × \(Int(outputSize.height))"
+    }
     private var locked: Bool { loading || model.busy }
     private var renderKey: String { "\(photo?.id.uuidString ?? "empty")-\(String(describing: photo?.adjustment))-\(presetValue)-\(outputLabel)" }
 
@@ -40,6 +51,17 @@ struct ComposeWallpaperView: View {
                         else if photos.isEmpty { ContentUnavailableView("选一张喜欢的照片", systemImage: "photo.on.rectangle.angled", description: Text("先选照片，再选适合车机的尺寸。")) }
                         else { ProgressView("正在生成预览…").frame(height: 160) }
                     }.frame(maxWidth: .infinity).clipShape(RoundedRectangle(cornerRadius: 18))
+                        .overlay {
+                            if preset == .split, preview != nil {
+                                GeometryReader { geo in
+                                    Rectangle().fill(.white.opacity(0.9)).frame(width: 2).position(x: geo.size.width / 2, y: geo.size.height / 2)
+                                    Text("车机").font(.caption.bold()).padding(.horizontal, 8).padding(.vertical, 4)
+                                        .background(.black.opacity(0.45), in: Capsule()).position(x: geo.size.width * 0.25, y: 22)
+                                    Text("CarPlay").font(.caption.bold()).padding(.horizontal, 8).padding(.vertical, 4)
+                                        .background(.black.opacity(0.45), in: Capsule()).position(x: geo.size.width * 0.75, y: 22)
+                                }.allowsHitTesting(false)
+                            }
+                        }
                         .overlay(alignment: .topTrailing) { if previewing && preview != nil { ProgressView().padding(12).background(.regularMaterial, in: Capsule()) } }
                     if !photos.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -88,7 +110,7 @@ struct ComposeWallpaperView: View {
                         Label("生成壁纸文件", systemImage: "sparkles").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 9)
                     }.buttonStyle(.borderedProminent).disabled(photos.isEmpty || locked).accessibilityIdentifier("wallpaper.generate")
                     if model.busy { ProgressView(value: model.generationProgress); Text("正在处理，请保持应用在前台…").font(.caption) }
-                    Text("已生成 \(generated.values.reduce(0) { $0 + $1.count }) / \(photos.count * 2)").font(.caption).foregroundStyle(.secondary)
+                    Text("已生成 \(generated.values.reduce(0) { $0 + $1.count }) / \(photos.count * filesPerPhoto)").font(.caption).foregroundStyle(.secondary)
                     if let problem { Text(problem).font(.subheadline).foregroundStyle(.red) }
                 }.padding(18).background(cardColor, in: RoundedRectangle(cornerRadius: 24))
 
@@ -101,6 +123,7 @@ struct ComposeWallpaperView: View {
                     Button { applying = true } label: {
                         Label("应用当前照片", systemImage: "car.side.fill").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
                     }.buttonStyle(.borderedProminent).disabled(photo.flatMap { generated[$0.id] } == nil || locked)
+                    LogoutCarPlayButton()
                     NavigationLink("查看历史记录与已生成文件") { CanvasHistoryView() }
                     Text(model.message).font(.caption).foregroundStyle(.secondary)
                 }.padding(18).background(cardColor, in: RoundedRectangle(cornerRadius: 24))
@@ -111,6 +134,7 @@ struct ComposeWallpaperView: View {
             .onChange(of: presetValue) { _, _ in generated = [:] }
             .onChange(of: outputLabel) { _, _ in generated = [:] }
             .task(id: selection) { await importSelection() }
+            .task(id: photo?.id) { await loadSourcePixels() }
             .task(id: renderKey) { await refreshPreview() }
             .sheet(isPresented: $adjusting) {
                 if let photo { WallpaperAdjustmentView(photo: photo, preset: preset, outputSize: outputSize) { adjustment in
@@ -169,6 +193,12 @@ struct ComposeWallpaperView: View {
             if !(error is CancellationError) { problem = "导入失败：\(error.localizedDescription)" }
         }
         loading = false
+    }
+    private func loadSourcePixels() async {
+        guard let url = photo?.url else { sourcePixels = nil; return }
+        sourcePixels = nil
+        let pixels = try? await Task.detached { try WallpaperRenderer.pixelSize(url) }.value
+        if !Task.isCancelled { sourcePixels = pixels }
     }
     private func refreshPreview() async {
         guard let photo else { preview = nil; return }

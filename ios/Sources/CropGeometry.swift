@@ -3,13 +3,23 @@ import Foundation
 import CoreGraphics
 
 enum WallpaperPreset: String, CaseIterable, Codable, Identifiable {
-    case automatic, standard, wide, panoramic
+    case automatic, standard, wide, panoramic, original, split
+    static let dashboard = CGSize(width: 6008, height: 934)
+    static let carPlayHalf = CGSize(width: 3004, height: 934)
     var id: String { rawValue }
     var title: String {
-        switch self { case .automatic: return "自动"; case .standard: return "标准"; case .wide: return "宽屏"; case .panoramic: return "大连屏" }
+        switch self {
+        case .automatic: return "自动"
+        case .standard: return "标准"
+        case .wide: return "宽屏"
+        case .panoramic: return "大连屏"
+        case .original: return "原尺寸"
+        case .split: return "融合"
+        }
     }
-    var crops: Bool { self == .standard }
-    func size(detected: CGSize? = nil) -> CGSize {
+    var crops: Bool { self == .standard || self == .split }
+    var preservesSourceSize: Bool { self == .original }
+    func size(detected: CGSize? = nil, source: CGSize? = nil) -> CGSize {
         switch self {
         case .automatic:
             if let detected, detected.width.isFinite, detected.height.isFinite, detected.width > 0, detected.height > 0 { return detected }
@@ -17,9 +27,17 @@ enum WallpaperPreset: String, CaseIterable, Codable, Identifiable {
         case .standard: return CGSize(width: 1440, height: 810)
         case .wide: return CGSize(width: 1920, height: 810)
         case .panoramic: return CGSize(width: 2560, height: 810)
+        case .split: return Self.dashboard
+        case .original:
+            if let source, source.width.isFinite, source.height.isFinite, source.width > 0, source.height > 0 { return source }
+            return .zero
         }
     }
-    var detail: String { crops ? "照片铺满画面，多出的部分裁掉。可点“调整”移动位置。" : "整张照片居中保留，空余区域用照片自身的模糊画面填满，不留黑边、不拉变形。" }
+    var detail: String {
+        if self == .split { return "屏幕 6008×934，CarPlay 占右半边。同一张照片铺满整屏：车机壁纸用整张，CarPlay 用右边 3004×934，两边在中线对齐。可点“调整”移动画面。" }
+        if preservesSourceSize { return "按每张照片的原始像素输出，不缩放、不裁切，也不用模糊填充。旋转或翻转后宽高会跟着变。" }
+        return crops ? "照片铺满画面，多出的部分裁掉。可点“调整”移动位置。" : "整张照片居中保留，空余区域用照片自身的模糊画面填满，不留黑边、不拉变形。"
+    }
 }
 
 struct WallpaperAdjustment: Codable, Equatable {

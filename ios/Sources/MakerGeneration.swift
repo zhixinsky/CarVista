@@ -20,20 +20,31 @@ extension WorkshopModel {
             do {
                 for (index, photo) in photos.enumerated() {
                     try autoreleasepool {
-                        let image = try WallpaperRenderer.render(url: photo.url, preset: preset, size: size, adjustment: photo.adjustment)
+                        let rendered = try WallpaperRenderer.render(url: photo.url, preset: preset, size: size, adjustment: photo.adjustment)
+                        let carPlayImage = preset == .split ? try WallpaperRenderer.rightHalf(rendered) : rendered
                         let batchID = UUID()
-                        let entries = ["深色", "浅色"].map {
-                            SavedWallpaper(id: UUID(), created: Date(), width: Int(size.width), height: Int(size.height),
-                                           mode: $0, batchID: batchID, outputPreset: preset.title)
+                        var outputs: [(SavedWallpaper, UIImage)] = ["深色", "浅色"].map { mode in
+                            let pixels = carPlayImage.cgImage
+                            let entry = SavedWallpaper(id: UUID(), created: Date(), width: pixels?.width ?? Int(carPlayImage.size.width),
+                                                       height: pixels?.height ?? Int(carPlayImage.size.height),
+                                                       mode: mode, batchID: batchID, outputPreset: preset.title)
+                            return (entry, carPlayImage)
                         }
+                        if preset == .split {
+                            let pixels = rendered.cgImage
+                            outputs.append((SavedWallpaper(id: UUID(), created: Date(), width: pixels?.width ?? Int(rendered.size.width),
+                                                           height: pixels?.height ?? Int(rendered.size.height),
+                                                           mode: "车机", batchID: batchID, outputPreset: preset.title), rendered))
+                        }
+                        let entries = outputs.map(\.0)
                         created += entries
-                        let ratio = min(1, 512 / max(size.width, size.height))
-                        let previewSize = CGSize(width: max(1, size.width * ratio), height: max(1, size.height * ratio))
-                        let preview = UIGraphicsImageRenderer(size: previewSize, format: WallpaperRenderer.format()).image { _ in
-                            image.draw(in: CGRect(origin: .zero, size: previewSize))
-                        }
-                        guard let png = image.pngData(), let jpeg = preview.jpegData(compressionQuality: 0.88) else { throw CocoaError(.fileWriteUnknown) }
-                        for entry in entries {
+                        for (entry, image) in outputs {
+                            let ratio = min(1, 512 / max(image.size.width, image.size.height))
+                            let previewSize = CGSize(width: max(1, image.size.width * ratio), height: max(1, image.size.height * ratio))
+                            let preview = UIGraphicsImageRenderer(size: previewSize, format: WallpaperRenderer.format()).image { _ in
+                                image.draw(in: CGRect(origin: .zero, size: previewSize))
+                            }
+                            guard let png = image.pngData(), let jpeg = preview.jpegData(compressionQuality: 0.88) else { throw CocoaError(.fileWriteUnknown) }
                             let encoded = CCEngine.encode(image, to: entry.bitmap.path) as? [String: Any] ?? [:]
                             guard encoded["ok"] as? Bool == true else {
                                 throw NSError(domain: "LvMu", code: 1, userInfo: [NSLocalizedDescriptionKey: encoded["message"] as? String ?? "生成失败"])

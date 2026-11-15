@@ -39,6 +39,28 @@ final class WallpaperRendererTests: XCTestCase {
             }
         }
     }
+    func testSplitPresetAlignsCarPlayToRightHalf() throws {
+        let full = try WallpaperRenderer.render(image: fixture(), preset: .split, size: WallpaperPreset.dashboard)
+        XCTAssertEqual(full.cgImage?.width, 6008)
+        XCTAssertEqual(full.cgImage?.height, 934)
+        let half = try WallpaperRenderer.rightHalf(full)
+        XCTAssertEqual(half.cgImage?.width, 3004)
+        XCTAssertEqual(half.cgImage?.height, 934)
+        let seam = sample(full, x: 3004, y: 400)
+        let edge = sample(half, x: 0, y: 400)
+        XCTAssertEqual(seam, edge)
+    }
+    func testOriginalPresetKeepsSourcePixels() throws {
+        let output = try WallpaperRenderer.render(image: fixture(), preset: .original, size: CGSize(width: 9, height: 9))
+        XCTAssertEqual(output.cgImage?.width, 100)
+        XCTAssertEqual(output.cgImage?.height, 200)
+        XCTAssertGreaterThan(sample(output, x: 50, y: 10)[0], 230)
+        XCTAssertGreaterThan(sample(output, x: 50, y: 190)[1], 230)
+        var turned = WallpaperAdjustment(); turned.turns = 1
+        let rotated = try WallpaperRenderer.render(image: fixture(), preset: .original, size: .zero, adjustment: turned)
+        XCTAssertEqual(rotated.cgImage?.width, 200)
+        XCTAssertEqual(rotated.cgImage?.height, 100)
+    }
     func testStandardCropPositionAndRotation() throws {
         var adjustment = WallpaperAdjustment(); adjustment.y = 0
         let top = try WallpaperRenderer.render(image: fixture(), preset: .standard, size: WallpaperPreset.standard.size(), adjustment: adjustment)

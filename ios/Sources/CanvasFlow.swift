@@ -15,7 +15,11 @@ struct WallpaperCollection: Identifiable {
     var title: String {
         first.customName ?? "CarVista-\(first.created.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour().minute()))"
     }
-    var mode: String { Set(entries.map(\.mode)).count > 1 ? "深色与浅色" : first.mode }
+    var mode: String {
+        let names = Set(entries.map(\.mode))
+        if names.contains("车机") { return "车机整屏与 CarPlay 右半" }
+        return names.count > 1 ? "深色与浅色" : first.mode
+    }
 }
 
 extension WorkshopModel {
@@ -146,16 +150,20 @@ struct WallpaperDetailView: View {
             if let collection {
                 List {
                     Section {
-                        SavedThumbnail(entry: collection.first)
-                            .aspectRatio(CGFloat(collection.first.width) / CGFloat(collection.first.height), contentMode: .fit).clipped()
+                        let shown = collection.entries.first { $0.mode == "车机" } ?? collection.first
+                        SavedThumbnail(entry: shown)
+                            .aspectRatio(CGFloat(shown.width) / CGFloat(max(shown.height, 1)), contentMode: .fit).clipped()
                         Text(collection.title).font(.headline)
-                        Text("\(collection.mode) · \(collection.first.width) × \(collection.first.height)").foregroundStyle(.secondary)
+                        Text("\(collection.mode) · \(shown.width) × \(shown.height)").foregroundStyle(.secondary)
                         if let preset = collection.first.outputPreset { Text("\(preset) · 生成后直接写入").font(.caption).foregroundStyle(.secondary) }
                         if collection.first.preservePixels == true { Text("原尺寸直接写入").font(.caption).foregroundStyle(.secondary) }
                     }
                     Section {
                         Button { applying = true } label: { Label("应用到 CarPlay 壁纸", systemImage: "car.side.fill").font(.headline) }.disabled(model.busy)
                         ShareLink(items: collection.entries.map(\.bitmap)) { Label("分享 CPBitmap 文件", systemImage: "square.and.arrow.up") }
+                        if let dashboard = collection.entries.first(where: { $0.mode == "车机" }) {
+                            ShareLink(item: dashboard.originalImage) { Label("分享车机整屏图片", systemImage: "photo") }
+                        }
                         Button("重命名") { name = collection.title; renaming = true }.disabled(model.busy)
                     }
                     Section { Button("删除记录", role: .destructive) { deleting = true }.disabled(model.busy) }
@@ -205,6 +213,12 @@ struct ApplyWallpaperView: View {
                 Text(finished ? model.message : "选择要替换的内置壁纸。原壁纸会自动备份。")
                 if !finished { Text("直接写入已保存的 CPBitmap，不按旧缓存尺寸缩放、裁剪或补边。车机如何显示由系统决定。").font(.caption).foregroundStyle(.secondary) }
                 if model.busy { ProgressView("正在处理，请保持应用在前台…") }
+            }
+            if finished {
+                Section {
+                    LogoutCarPlayButton()
+                    Text("注销会结束这次 CarPlay 连接。重新连上车机后，系统才会读取刚写入的壁纸。").font(.caption).foregroundStyle(.secondary)
+                }
             }
             if !finished {
                 if model.targets.filter(\.editable).isEmpty {
@@ -291,7 +305,7 @@ struct CanvasGuideView: View {
         ("生成车机壁纸缓存", "停车后，在车机 CarPlay 的“设置 → 壁纸”中切换几张内置图片壁纸。不同系统的排列可能不同。"),
         ("制作自己的壁纸", "打开“壁纸”，选择照片与尺寸模式，点击“生成壁纸文件”。深色与浅色会一起保存，不调整也可以。"),
         ("选择目标并应用", "点击“应用当前照片”，选择要替换的内置壁纸。也可从历史记录再次应用，原文件会自动备份。"),
-        ("重启一次 iPhone", "完成全部替换后，关机再开机，让 CarPlay 重新加载。需要还原时，在缓存页进入“备份与恢复”。")]
+        ("注销 CarPlay", "替换后点“注销 CarPlay”。应用会结束会话，或打开「设置 → 通用 → CarPlay」让你断开这辆车。等几秒后重新连接，不必关机。需要还原时，在缓存页进入“备份与恢复”。")]
     var body: some View {
         NavigationStack {
             List {
@@ -323,6 +337,8 @@ struct CanvasSettingsView: View {
                 }.padding(.vertical, 6)
             }
             Section {
+                LogoutCarPlayButton()
+                Text("结束当前连接并重新进入车机，用来让新壁纸生效。").font(.caption).foregroundStyle(.secondary)
                 Button { guide = true } label: { Label("使用指南", systemImage: "book") }
                 NavigationLink { BackupsView() } label: { Label("备份与恢复", systemImage: "arrow.uturn.backward") }
                 NavigationLink { HelpView() } label: { Label("安装检查与诊断", systemImage: "stethoscope") }
@@ -335,5 +351,17 @@ struct CanvasSettingsView: View {
             }
         }.navigationTitle("设置").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .sheet(isPresented: $guide) { CanvasGuideView() }
+    }
+}
+
+struct LogoutCarPlayButton: View {
+    @State private var message: String?
+    var body: some View {
+        Button { message = (CCEngine.logoutCarPlay() as? [String: Any])?["message"] as? String ?? "无法注销 CarPlay" } label: {
+            Label("注销 CarPlay", systemImage: "rectangle.portrait.and.arrow.right")
+        }.accessibilityIdentifier("carplay.logout")
+            .alert("注销 CarPlay", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+                Button("知道了", role: .cancel) { message = nil }
+            } message: { Text(message ?? "") }
     }
 }
