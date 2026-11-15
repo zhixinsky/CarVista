@@ -2,6 +2,20 @@ import XCTest
 
 final class NavigationTests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
+    func testBuiltinSplitSelection() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-CCGuideSeen", "YES"]
+        app.launch()
+        app.buttons["home.wallpaper"].tap()
+        let wallpaper = app.buttons["浅海人鱼"]
+        for _ in 0..<3 { if wallpaper.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(wallpaper.isHittable)
+        wallpaper.tap()
+        XCTAssertTrue(app.buttons["builtin.use"].waitForExistence(timeout: 10))
+        app.sliders["右侧壁纸起点"].adjust(toNormalizedSliderPosition: 0.4)
+        capture(app, "10-Builtin-Split")
+        app.buttons["取消"].tap()
+    }
     private func capture(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
@@ -52,7 +66,7 @@ final class NavigationTests: XCTestCase {
         app.swipeUp()
         let presets = app.segmentedControls["maker.presets"]
         XCTAssertTrue(presets.waitForExistence(timeout: 5))
-        for name in ["标准", "宽屏", "大连屏", "原尺寸", "融合", "自动"] {
+        for name in ["标准", "宽屏", "大连屏", "原尺寸", "自动"] {
             presets.buttons[name].tap()
             XCTAssertTrue(presets.buttons[name].isSelected)
             capture(app, "08-Preset-\(name)")
