@@ -10,6 +10,7 @@ struct ComposeWallpaperView: View {
     @State private var current = 0
     @State private var loading = false
     @State private var adjusting = false
+    @State private var builtin: BuiltinWallpaper?
     @State private var applying = false
     @State private var problem: String?
     @State private var generated: [UUID: [SavedWallpaper]] = [:]
@@ -25,9 +26,8 @@ struct ComposeWallpaperView: View {
         let turns = (((photo?.adjustment.turns ?? 0) % 4) + 4) % 4
         return turns % 2 == 0 ? sourcePixels : CGSize(width: sourcePixels.height, height: sourcePixels.width)
     }
-    private var filesPerPhoto: Int { preset == .split ? 3 : 2 }
+    private var filesPerPhoto: Int { 2 }
     private var outputLabel: String {
-        if preset == .split { return "6008 × 934 · CarPlay 右半 3004 × 934" }
         guard outputSize.width > 0, outputSize.height > 0 else { return "读取原图尺寸…" }
         return "\(Int(outputSize.width)) × \(Int(outputSize.height))"
     }
@@ -51,17 +51,6 @@ struct ComposeWallpaperView: View {
                         else if photos.isEmpty { ContentUnavailableView("选一张喜欢的照片", systemImage: "photo.on.rectangle.angled", description: Text("先选照片，再选适合车机的尺寸。")) }
                         else { ProgressView("正在生成预览…").frame(height: 160) }
                     }.frame(maxWidth: .infinity).clipShape(RoundedRectangle(cornerRadius: 18))
-                        .overlay {
-                            if preset == .split, preview != nil {
-                                GeometryReader { geo in
-                                    Rectangle().fill(.white.opacity(0.9)).frame(width: 2).position(x: geo.size.width / 2, y: geo.size.height / 2)
-                                    Text("车机").font(.caption.bold()).padding(.horizontal, 8).padding(.vertical, 4)
-                                        .background(.black.opacity(0.45), in: Capsule()).position(x: geo.size.width * 0.25, y: 22)
-                                    Text("CarPlay").font(.caption.bold()).padding(.horizontal, 8).padding(.vertical, 4)
-                                        .background(.black.opacity(0.45), in: Capsule()).position(x: geo.size.width * 0.75, y: 22)
-                                }.allowsHitTesting(false)
-                            }
-                        }
                         .overlay(alignment: .topTrailing) { if previewing && preview != nil { ProgressView().padding(12).background(.regularMaterial, in: Capsule()) } }
                     if !photos.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -94,6 +83,22 @@ struct ComposeWallpaperView: View {
                     if loading { ProgressView("正在导入照片…") }
                 }.padding(16).background(cardColor, in: RoundedRectangle(cornerRadius: 24))
 
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("内置壁纸").font(.headline)
+                    Text("选择整屏壁纸，拖动分界线截取右侧 CarPlay 画面。").font(.caption).foregroundStyle(.secondary)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack {
+                            ForEach(BuiltinWallpaper.all) { item in
+                                Button { builtin = item } label: {
+                                    VStack {
+                                        Image(item.id).resizable().scaledToFill().frame(width: 140, height: 65).clipped().clipShape(RoundedRectangle(cornerRadius: 10))
+                                        Text(item.title).font(.caption)
+                                    }
+                                }.buttonStyle(.plain).disabled(locked)
+                            }
+                        }
+                    }
+                }.padding(16).background(cardColor, in: RoundedRectangle(cornerRadius: 24))
                 VStack(alignment: .leading, spacing: 16) {
                     step("02", "生成壁纸文件", "每张照片自动生成深色与浅色两个版本。")
                     Text("输出尺寸").font(.headline)
@@ -136,6 +141,22 @@ struct ComposeWallpaperView: View {
             .task(id: selection) { await importSelection() }
             .task(id: photo?.id) { await loadSourcePixels() }
             .task(id: renderKey) { await refreshPreview() }
+            .sheet(item: $builtin) { item in
+                BuiltinWallpaperView(wallpaper: item) { incoming in
+                    var updated = photos
+                    let old: MakerPhoto?
+                    if updated.indices.contains(current) { old = updated[current]; updated[current] = incoming }
+                    else { old = nil; updated.append(incoming) }
+                    do {
+                        try MakerDraft.save(updated)
+                        photos = updated; generated = [:]; presetValue = WallpaperPreset.original.rawValue
+                        if let old { try? FileManager.default.removeItem(at: old.url) }
+                    } catch {
+                        try? FileManager.default.removeItem(at: incoming.url)
+                        problem = "保存壁纸失败：\(error.localizedDescription)"
+                    }
+                }
+            }
             .sheet(isPresented: $adjusting) {
                 if let photo { WallpaperAdjustmentView(photo: photo, preset: preset, outputSize: outputSize) { adjustment in
                     guard let index = photos.firstIndex(where: { $0.id == photo.id }) else { return }
@@ -157,6 +178,7 @@ struct ComposeWallpaperView: View {
     private func initialize() {
         guard !initialized else { return }; initialized = true
         photos = MakerDraft.load()
+        if presetValue == "split" { presetValue = WallpaperPreset.original.rawValue }
         #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("-MakerUITestFixture"), let data = UIImage(named: "BrandMark")?.pngData(),
            let fixture = try? MakerDraft.importPhoto(data: data) {

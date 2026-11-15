@@ -21,20 +21,14 @@ extension WorkshopModel {
                 for (index, photo) in photos.enumerated() {
                     try autoreleasepool {
                         let rendered = try WallpaperRenderer.render(url: photo.url, preset: preset, size: size, adjustment: photo.adjustment)
-                        let carPlayImage = preset == .split ? try WallpaperRenderer.rightHalf(rendered) : rendered
+                        let carPlayImage = rendered
                         let batchID = UUID()
-                        var outputs: [(SavedWallpaper, UIImage)] = ["深色", "浅色"].map { mode in
+                        let outputs: [(SavedWallpaper, UIImage)] = ["深色", "浅色"].map { mode in
                             let pixels = carPlayImage.cgImage
                             let entry = SavedWallpaper(id: UUID(), created: Date(), width: pixels?.width ?? Int(carPlayImage.size.width),
                                                        height: pixels?.height ?? Int(carPlayImage.size.height),
                                                        mode: mode, batchID: batchID, outputPreset: preset.title)
                             return (entry, carPlayImage)
-                        }
-                        if preset == .split {
-                            let pixels = rendered.cgImage
-                            outputs.append((SavedWallpaper(id: UUID(), created: Date(), width: pixels?.width ?? Int(rendered.size.width),
-                                                           height: pixels?.height ?? Int(rendered.size.height),
-                                                           mode: "车机", batchID: batchID, outputPreset: preset.title), rendered))
                         }
                         let entries = outputs.map(\.0)
                         created += entries

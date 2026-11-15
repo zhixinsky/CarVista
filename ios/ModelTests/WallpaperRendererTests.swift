@@ -3,6 +3,23 @@ import UIKit
 @testable import CarCanvasWorkshop
 
 final class WallpaperRendererTests: XCTestCase {
+    func testBuiltinRightCropPreservesPixelsAndBounds() throws {
+        for item in BuiltinWallpaper.all {
+            let original = try XCTUnwrap(UIImage(named: item.id, in: Bundle(for: WorkshopModel.self), compatibleWith: nil))
+            XCTAssertEqual(original.cgImage?.width, 6008)
+            XCTAssertEqual(original.cgImage?.height, 934)
+            for start in [0, 2600, 3004, 6007] {
+                let crop = try BuiltinWallpaper.cropRight(original, start: start)
+                XCTAssertEqual(crop.cgImage?.width, 6008 - start)
+                XCTAssertEqual(crop.cgImage?.height, 934)
+                XCTAssertEqual(sample(crop, x: 0, y: 400), sample(original, x: start, y: 400))
+                XCTAssertEqual(sample(crop, x: 6007 - start, y: 900), sample(original, x: 6007, y: 900))
+            }
+            XCTAssertThrowsError(try BuiltinWallpaper.cropRight(original, start: -1))
+            XCTAssertThrowsError(try BuiltinWallpaper.cropRight(original, start: 6008))
+        }
+        XCTAssertNil(WallpaperPreset(rawValue: "split"))
+    }
     private func fixture() -> UIImage {
         UIGraphicsImageRenderer(size: CGSize(width: 100, height: 200), format: WallpaperRenderer.format()).image { c in
             UIColor.red.setFill(); c.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
@@ -38,17 +55,6 @@ final class WallpaperRendererTests: XCTestCase {
                 }
             }
         }
-    }
-    func testSplitPresetAlignsCarPlayToRightHalf() throws {
-        let full = try WallpaperRenderer.render(image: fixture(), preset: .split, size: WallpaperPreset.dashboard)
-        XCTAssertEqual(full.cgImage?.width, 6008)
-        XCTAssertEqual(full.cgImage?.height, 934)
-        let half = try WallpaperRenderer.rightHalf(full)
-        XCTAssertEqual(half.cgImage?.width, 3004)
-        XCTAssertEqual(half.cgImage?.height, 934)
-        let seam = sample(full, x: 3004, y: 400)
-        let edge = sample(half, x: 0, y: 400)
-        XCTAssertEqual(seam, edge)
     }
     func testOriginalPresetKeepsSourcePixels() throws {
         let output = try WallpaperRenderer.render(image: fixture(), preset: .original, size: CGSize(width: 9, height: 9))

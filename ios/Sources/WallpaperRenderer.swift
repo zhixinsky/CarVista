@@ -77,10 +77,4 @@ enum WallpaperRenderer {
             source.draw(in: CropGeometry.fit(source: source.size, target: canvas))
         }
     }
-    static func rightHalf(_ image: UIImage) throws -> UIImage {
-        guard let cg = image.cgImage, cg.width > 1, cg.height > 0 else { throw CocoaError(.fileWriteUnknown) }
-        let width = cg.width / 2
-        guard let crop = cg.cropping(to: CGRect(x: cg.width - width, y: 0, width: width, height: cg.height)) else { throw CocoaError(.fileWriteUnknown) }
-        return UIImage(cgImage: crop, scale: 1, orientation: .up)
-    }
 }
