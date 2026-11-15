@@ -128,7 +128,7 @@ struct ComposeWallpaperView: View {
                     Button { applying = true } label: {
                         Label("应用当前照片", systemImage: "car.side.fill").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
                     }.buttonStyle(.borderedProminent).disabled(photo.flatMap { generated[$0.id] } == nil || locked)
-                    LogoutCarPlayButton()
+                    WallpaperRefreshButton()
                     NavigationLink("查看历史记录与已生成文件") { CanvasHistoryView() }
                     Text(model.message).font(.caption).foregroundStyle(.secondary)
                 }.padding(18).background(cardColor, in: RoundedRectangle(cornerRadius: 24))

@@ -216,8 +216,8 @@ struct ApplyWallpaperView: View {
             }
             if finished {
                 Section {
-                    LogoutCarPlayButton()
-                    Text("注销会结束这次 CarPlay 连接。重新连上车机后，系统才会读取刚写入的壁纸。").font(.caption).foregroundStyle(.secondary)
+                    WallpaperRefreshButton()
+                    Text("写入成功不代表屏幕已经刷新。若仍显示旧图，请重启 iPhone 后重新连接。").font(.caption).foregroundStyle(.secondary)
                 }
             }
             if !finished {
@@ -305,7 +305,7 @@ struct CanvasGuideView: View {
         ("生成车机壁纸缓存", "停车后，在车机 CarPlay 的“设置 → 壁纸”中切换几张内置图片壁纸。不同系统的排列可能不同。"),
         ("制作自己的壁纸", "打开“壁纸”，选择照片与尺寸模式，点击“生成壁纸文件”。深色与浅色会一起保存，不调整也可以。"),
         ("选择目标并应用", "点击“应用当前照片”，选择要替换的内置壁纸。也可从历史记录再次应用，原文件会自动备份。"),
-        ("注销 CarPlay", "替换后点“注销 CarPlay”。应用会结束会话，或打开「设置 → 通用 → CarPlay」让你断开这辆车。等几秒后重新连接，不必关机。需要还原时，在缓存页进入“备份与恢复”。")]
+        ("注销", "替换后点“注销”，尝试重载系统界面，返回桌面后重新连接车机检查；无效时手动重启 iPhone。需要还原时，在缓存页进入“备份与恢复”。")]
     var body: some View {
         NavigationStack {
             List {
@@ -337,7 +337,7 @@ struct CanvasSettingsView: View {
                 }.padding(.vertical, 6)
             }
             Section {
-                LogoutCarPlayButton()
+                WallpaperRefreshButton()
                 Text("结束当前连接并重新进入车机，用来让新壁纸生效。").font(.caption).foregroundStyle(.secondary)
                 Button { guide = true } label: { Label("使用指南", systemImage: "book") }
                 NavigationLink { BackupsView() } label: { Label("备份与恢复", systemImage: "arrow.uturn.backward") }
@@ -351,17 +351,5 @@ struct CanvasSettingsView: View {
             }
         }.navigationTitle("设置").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .sheet(isPresented: $guide) { CanvasGuideView() }
-    }
-}
-
-struct LogoutCarPlayButton: View {
-    @State private var message: String?
-    var body: some View {
-        Button { message = (CCEngine.logoutCarPlay() as? [String: Any])?["message"] as? String ?? "无法注销 CarPlay" } label: {
-            Label("注销 CarPlay", systemImage: "rectangle.portrait.and.arrow.right")
-        }.accessibilityIdentifier("carplay.logout")
-            .alert("注销 CarPlay", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
-                Button("知道了", role: .cancel) { message = nil }
-            } message: { Text(message ?? "") }
     }
 }

@@ -216,7 +216,7 @@ final class WorkshopModel: ObservableObject {
                 }
                 completed += 1
             }
-            return ["ok": true, "message": "\(completed) 个壁纸已应用，原文件已备份。退出并重新连接 CarPlay 即可重新加载，不必关机。若仍是旧图，再断开一次。"]
+            return ["ok": true, "message": "\(completed) 个壁纸已应用，原文件已备份。请重启 iPhone 后重新连接 CarPlay 检查效果。"]
         }) { result in
             self.message = result["message"] as? String ?? "应用失败"
             self.targets = []
@@ -452,8 +452,8 @@ struct HelpView: View {
                 Text("1. 签名时保留有效 App Group，再安装。")
                 Text("2. 停车后，在车机 CarPlay 设置中切换几张内置图片壁纸，让系统生成缓存。")
                 Text("3. 打开“壁纸”，选择照片与尺寸模式，生成后点击“应用当前照片”。也可以从历史记录再次应用。")
-                Text("4. 确认备份并替换，然后点“注销 CarPlay”。应用会结束会话或打开系统 CarPlay 页面，断开后等几秒再连接。不必关机。")
-                Text("5. 不满意可在恢复页恢复备份，同样断开并重新连接 CarPlay 后检查。仍是旧图时再断开一次，还不行再重启 iPhone。")
+                Text("4. 确认备份并替换，然后点“注销”。尝试重载系统界面；无效时手动重启 iPhone 后重新连接车机。")
+                Text("5. 不满意可在恢复页恢复备份，再重启 iPhone 并连接 CarPlay 检查。")
             }
             Section("签名与兼容性") {
                 Text("系统：\(UIDevice.current.systemVersion)")

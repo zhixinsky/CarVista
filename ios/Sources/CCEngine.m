@@ -127,36 +127,6 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellatio
     return files;
 }
 
-static BOOL CCOpenSettings(NSURL *url) {
-    Class workspaceClass = NSClassFromString(@"LSApplicationWorkspace");
-    SEL defaultSel = NSSelectorFromString(@"defaultWorkspace");
-    SEL openSel = NSSelectorFromString(@"openSensitiveURL:withOptions:");
-    if (workspaceClass && [workspaceClass respondsToSelector:defaultSel]) {
-        id workspace = ((id (*)(id, SEL))objc_msgSend)(workspaceClass, defaultSel);
-        if (url && [workspace respondsToSelector:openSel]) {
-            return ((BOOL (*)(id, SEL, NSURL *, id))objc_msgSend)(workspace, openSel, url, nil);
-        }
-    }
-    Class appClass = NSClassFromString(@"UIApplication");
-    SEL shared = NSSelectorFromString(@"sharedApplication");
-    SEL openURL = NSSelectorFromString(@"openURL:options:completionHandler:");
-    if (!url || !appClass || ![appClass respondsToSelector:shared]) return NO;
-    id app = ((id (*)(id, SEL))objc_msgSend)(appClass, shared);
-    if (![app respondsToSelector:openURL]) return NO;
-    ((void (*)(id, SEL, NSURL *, NSDictionary *, id))objc_msgSend)(app, openURL, url, @{}, nil);
-    return YES;
-}
-static BOOL CCEndSession(id session) {
-    if (!session) return NO;
-    for (NSString *name in @[@"disconnect", @"endSession", @"stopSession", @"requestDisconnect"]) {
-        SEL end = NSSelectorFromString(name);
-        if ([session respondsToSelector:end]) {
-            ((void (*)(id, SEL))objc_msgSend)(session, end);
-            return YES;
-        }
-    }
-    return NO;
-}
 @implementation CCEngine
 + (NSString *)appGroup { CCSetup(); return wq_app_group() ?: @""; }
 + (NSString *)logs { return wq_log_text(); }
@@ -231,7 +201,7 @@ static BOOL CCEndSession(id session) {
     if (!newImage.CGImage) return CCFail(@"源 CPBitmap 无法解码，未写入");
     NSString *error = nil;
     if (!wq_write_if_unchanged(path, data, expected, &error)) return CCFail(error);
-    return @{@"ok":@YES, @"message":@"已备份并写入，回读校验通过。退出并重新连接 CarPlay 即可重新加载，不必关机。应用无法自动确认车机显示结果。"};
+    return @{@"ok":@YES, @"message":@"已备份并写入，回读校验通过。请重启 iPhone 后连接 CarPlay 检查效果，应用无法自动确认车机显示结果。"};
 }
 + (NSArray<NSDictionary *> *)backups {
     NSMutableArray *items = NSMutableArray.new;
@@ -260,25 +230,7 @@ static BOOL CCEndSession(id session) {
     if (!CCDecode(data)) return CCFail(@"备份无法解码，拒绝恢复");
     NSString *error = nil;
     if (!wq_write_if_unchanged(original, data, expected, &error)) return CCFail(error);
-    return @{@"ok":@YES, @"message":@"恢复完成，当前版本也已备份。退出并重新连接 CarPlay 后查看。"};
+    return @{@"ok":@YES, @"message":@"恢复完成，当前版本也已备份。请重启 iPhone 后连接 CarPlay 检查效果。"};
 }
-+ (NSDictionary *)logoutCarPlay {
-    dlopen("/System/Library/PrivateFrameworks/CarKit.framework/CarKit", RTLD_LAZY);
-    Class statusClass = NSClassFromString(@"CARSessionStatus");
-    SEL sessionSel = NSSelectorFromString(@"currentSession");
-    if (statusClass && [statusClass instancesRespondToSelector:sessionSel]) {
-        id status = [[statusClass alloc] init];
-        id session = ((id (*)(id, SEL))objc_msgSend)(status, sessionSel);
-        if (CCEndSession(session)) {
-            return @{@"ok":@YES, @"message":@"已请求结束当前 CarPlay 会话。等几秒后，从车机重新连接即可加载新壁纸。"};
-        }
-    }
-    NSArray<NSString *> *pages = @[@"App-prefs:root=General&path=CARPLAY", @"prefs:root=General&path=CARPLAY"];
-    for (NSString *page in pages) {
-        if (CCOpenSettings([NSURL URLWithString:page])) {
-            return @{@"ok":@YES, @"message":@"已打开 CarPlay 设置。点这辆车右侧的 i，断开连接，等几秒后再重新连接。不必关机。"};
-        }
-    }
-    return CCFail(@"无法直接结束会话或打开设置。请手动前往「设置 → 通用 → CarPlay」，断开这辆车后再连接。");
-}
+
 @end
