@@ -13,7 +13,7 @@ struct WallpaperCollection: Identifiable {
     let entries: [SavedWallpaper]
     var first: SavedWallpaper { entries[0] }
     var title: String {
-        first.customName ?? "旅幕-\(first.created.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour().minute()))"
+        first.customName ?? "CarVista-\(first.created.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour().minute()))"
     }
     var mode: String { Set(entries.map(\.mode)).count > 1 ? "深色与浅色" : first.mode }
 }
@@ -36,7 +36,7 @@ struct CanvasHomeView: View {
                 VStack(spacing: 16) {
                     HStack(spacing: 18) {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("旅幕").font(.largeTitle.bold()).minimumScaleFactor(0.75).lineLimit(1)
+                            Text("CarVista").font(.largeTitle.bold()).minimumScaleFactor(0.75).lineLimit(1)
                             Text("把喜欢的风景，带上车。").font(.subheadline)
                             Text("v\(CanvasTheme.version)").font(.caption).opacity(0.8)
                         }
@@ -319,7 +319,7 @@ struct CanvasSettingsView: View {
             Section {
                 HStack(spacing: 16) {
                     Image("BrandMark").resizable().frame(width: 60, height: 60).clipShape(RoundedRectangle(cornerRadius: 15))
-                    VStack(alignment: .leading, spacing: 5) { Text("旅幕").font(.headline); Text("v\(CanvasTheme.version)").font(.subheadline).foregroundStyle(.secondary) }
+                    VStack(alignment: .leading, spacing: 5) { Text("CarVista").font(.headline); Text("v\(CanvasTheme.version)").font(.subheadline).foregroundStyle(.secondary) }
                 }.padding(.vertical, 6)
             }
             Section {

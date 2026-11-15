@@ -52,7 +52,7 @@ struct DiagnosticsView: View {
                 }
                 if let message { Section("提示") { Text(message) } }
             }
-            .navigationTitle("旅幕 诊断")
+            .navigationTitle("CarVista 诊断")
             .fileImporter(isPresented: $picking, allowedContentTypes: [.folder]) { result in
                 switch result {
                 case .success(let url):
@@ -83,7 +83,7 @@ struct DiagnosticsView: View {
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
                 encoder.dateEncodingStrategy = .iso8601
-                let url = FileManager.default.temporaryDirectory.appendingPathComponent("旅幕-\(UUID().uuidString).json")
+                let url = FileManager.default.temporaryDirectory.appendingPathComponent("CarVista-\(UUID().uuidString).json")
                 let bundle = ReportBundle(baseline: baseline, current: next, changes: changes)
                 try encoder.encode(bundle).write(to: url, options: .atomic)
                 exportURL = url

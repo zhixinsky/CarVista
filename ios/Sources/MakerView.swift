@@ -29,7 +29,7 @@ struct ComposeWallpaperView: View {
                 HStack(spacing: 14) {
                     Image("BrandMark").resizable().frame(width: 58, height: 58).clipShape(RoundedRectangle(cornerRadius: 15))
                     VStack(alignment: .leading, spacing: 4) {
-                        HStack { Text("旅幕").font(.title.bold()); Text("v\(CanvasTheme.version)").font(.caption).foregroundStyle(.secondary) }
+                        HStack { Text("CarVista").font(.title.bold()); Text("v\(CanvasTheme.version)").font(.caption).foregroundStyle(.secondary) }
                         Text("制作并替换 CarPlay 壁纸").foregroundStyle(.secondary)
                     }
                 }
