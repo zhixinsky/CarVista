@@ -68,10 +68,13 @@ private enum BingGallery {
 }
 
 struct WallpaperGalleryView: View {
-    private enum Source: String, CaseIterable { case bing = "Bing 每日精选", commons = "Commons 主题找图" }
+    private enum Source: String, CaseIterable {
+        case bing = "Bing 每日精选", commons = "Commons 主题找图", buick = "别克大连屏"
+    }
     let use: (Data) -> Void
     @State private var source: Source = .bing
     @State private var openedCommons = false
+    @State private var openedBuick = false
 
     var body: some View {
         ZStack {
@@ -85,8 +88,17 @@ struct WallpaperGalleryView: View {
                     .allowsHitTesting(source == .commons)
                     .accessibilityHidden(source != .commons)
             }
+            if openedBuick || source == .buick {
+                BuickWallpaperGalleryView(use: use)
+                    .opacity(source == .buick ? 1 : 0)
+                    .allowsHitTesting(source == .buick)
+                    .accessibilityHidden(source != .buick)
+            }
         }
-        .onChange(of: source) { _, value in if value == .commons { openedCommons = true } }
+        .onChange(of: source) { _, value in
+            if value == .commons { openedCommons = true }
+            if value == .buick { openedBuick = true }
+        }
         .safeAreaInset(edge: .top, spacing: 0) {
             Picker("图库来源", selection: $source) {
                 ForEach(Source.allCases, id: \.self) { Text($0.rawValue).tag($0) }
