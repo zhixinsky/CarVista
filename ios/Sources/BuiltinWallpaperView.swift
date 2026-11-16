@@ -5,6 +5,7 @@ struct BuiltinWallpaper: Identifiable {
     let id: String
     let title: String
     var previewName: String { "\(id)Preview" }
+    var previewImage: UIImage? { UIImage(named: previewName) ?? UIImage(named: id) }
     static let all = ["浅海人鱼", "晴日海滩", "夜色海滩", "金马山川", "深海人鱼"].enumerated().map {
         BuiltinWallpaper(id: "Builtin\($0.offset)", title: $0.element)
     }
@@ -14,6 +15,19 @@ struct BuiltinWallpaper: Identifiable {
             throw CocoaError(.fileReadCorruptFile)
         }
         return UIImage(cgImage: cropped, scale: 1, orientation: .up)
+    }
+}
+
+struct BuiltinWallpaperPreview: View {
+    let wallpaper: BuiltinWallpaper
+
+    var body: some View {
+        if let image = wallpaper.previewImage {
+            Image(uiImage: image).resizable().scaledToFit()
+        } else {
+            Label("预览不可用", systemImage: "photo")
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 }
 
@@ -37,7 +51,7 @@ struct BuiltinWallpaperView: View {
                         GeometryReader { geometry in
                             let x = geometry.size.width * start / Double(width)
                             ZStack(alignment: .leading) {
-                                Image(wallpaper.previewName).resizable().scaledToFit()
+                                BuiltinWallpaperPreview(wallpaper: wallpaper)
                                 Rectangle().fill(.black.opacity(0.55)).frame(width: x)
                                 Rectangle().fill(.white).frame(width: 3).offset(x: x - 1.5)
                             }.contentShape(Rectangle()).gesture(DragGesture(minimumDistance: 0).onChanged { value in

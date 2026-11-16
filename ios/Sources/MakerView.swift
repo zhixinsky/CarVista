@@ -91,7 +91,7 @@ struct ComposeWallpaperView: View {
                             ForEach(BuiltinWallpaper.all) { item in
                                 Button { builtin = item } label: {
                                     VStack {
-                                        Image(item.previewName).resizable().scaledToFit()
+                                        BuiltinWallpaperPreview(wallpaper: item)
                                             .frame(width: 160, height: 44)
                                             .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
                                             .accessibilityHidden(true)

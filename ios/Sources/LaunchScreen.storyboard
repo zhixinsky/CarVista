@@ -28,7 +28,7 @@
                             </label>
                         </subviews>
                         <viewLayoutGuide key="safeArea" id="launch-safe"/>
-                        <color key="backgroundColor" red="0.0" green="0.087" blue="0.11" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <color key="backgroundColor" red="0.007843" green="0.094118" blue="0.439216" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <constraints>
                             <constraint firstItem="launch-image" firstAttribute="centerX" secondItem="launch-view" secondAttribute="centerX" id="image-x"/>
                             <constraint firstItem="launch-image" firstAttribute="centerY" secondItem="launch-view" secondAttribute="centerY" constant="-34" id="image-y"/>

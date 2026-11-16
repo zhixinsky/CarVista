@@ -1,10 +1,5 @@
 name: Build CarVista IPA
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'ios/**'
-      - '.github/workflows/ios-diagnostics.yml'
   workflow_dispatch:
 permissions:
   contents: read
