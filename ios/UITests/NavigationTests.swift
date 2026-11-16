@@ -67,10 +67,12 @@ final class NavigationTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["调整壁纸"].waitForExistence(timeout: 5))
         let presets = app.buttons["maker.presets"]
         XCTAssertTrue(presets.waitForExistence(timeout: 5))
-        presets.tap()
         app.buttons["自由裁剪"].tap()
+        XCTAssertTrue(app.sliders["缩放"].isEnabled)
+        presets.tap()
         XCTAssertTrue(app.textFields["宽度（像素）"].exists)
         XCTAssertTrue(app.textFields["高度（像素）"].exists)
+        app.buttons["完成"].tap()
         app.buttons["旋转"].tap()
         capture(app, "09-Adjustment")
         app.buttons["还原"].tap()

@@ -24,6 +24,7 @@ struct WallpaperAdjustmentView: View {
     @State private var preview: UIImage?
     @State private var source: UIImage?
     @State private var error: String?
+    @State private var showingSizes = false
     @State private var dragOrigin: CGPoint?
     @State private var pinchOrigin: Double?
     init(photo: MakerPhoto, preset: WallpaperPreset, outputSize: CGSize, detectedSize: CGSize?, sourceSize: CGSize?, save: @escaping (WallpaperAdjustment, WallpaperPreset, CGSize) -> Void) {
@@ -35,85 +36,162 @@ struct WallpaperAdjustmentView: View {
     }
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 22) {
-                    Picker("快速尺寸", selection: $preset) {
-                        ForEach(WallpaperPreset.allCases) { option in
-                            Text(option.title).tag(option)
-                        }
-                    }.pickerStyle(.menu).accessibilityIdentifier("maker.presets")
-                    if preset == .custom {
-                        HStack {
-                            TextField("宽度（像素）", text: $widthText).accessibilityLabel("宽度（像素）")
-                            Text("×")
-                            TextField("高度（像素）", text: $heightText).accessibilityLabel("高度（像素）")
-                        }.keyboardType(.numberPad).textFieldStyle(.roundedBorder)
-                        if outputSize == .zero {
-                            Text("宽高须为 1–8192 像素，总像素数不超过 33554432。").font(.caption).foregroundStyle(.red)
-                        }
+            GeometryReader { geometry in
+                let landscape = geometry.size.width > geometry.size.height
+                VStack(spacing: 8) {
+                    GeometryReader { canvas in
+                        let aspect = outputSize == .zero ? 16.0 / 9 : outputSize.width / outputSize.height
+                        let width = min(canvas.size.width, canvas.size.height * aspect)
+                        let height = width / aspect
+                        cropPreview(size: CGSize(width: width, height: height))
+                            .frame(width: width, height: height)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    Text(outputSize.width > 0 ? "\(preset.title) · \(Int(outputSize.width)) × \(Int(outputSize.height))" : "\(preset.title) · 读取原图尺寸…").foregroundStyle(.secondary)
-                    GeometryReader { proxy in
-                        Group {
-                            if let preview { Image(uiImage: preview).resizable().scaledToFit() }
-                            else { ProgressView("正在准备预览…").frame(maxWidth: .infinity, maxHeight: .infinity) }
-                        }.frame(width: proxy.size.width, height: proxy.size.height).clipped().contentShape(Rectangle())
-                            .gesture(DragGesture().onChanged { value in
-                                guard preset.crops, let source else { return }
-                                if dragOrigin == nil { dragOrigin = CGPoint(x: adjustment.x, y: adjustment.y) }
-                                let rotatedSize = adjustment.turns % 2 == 0 ? source.size : CGSize(width: source.size.height, height: source.size.width)
-                                let rect = CropGeometry.rect(source: rotatedSize, target: proxy.size, zoom: adjustment.zoom, x: adjustment.x, y: adjustment.y)
-                                let start = dragOrigin ?? CGPoint(x: 0.5, y: 0.5)
-                                if rect.width > proxy.size.width + 1 { adjustment.x = min(1, max(0, start.x - value.translation.width / (rect.width - proxy.size.width))) }
-                                if rect.height > proxy.size.height + 1 { adjustment.y = min(1, max(0, start.y - value.translation.height / (rect.height - proxy.size.height))) }
-                            }.onEnded { _ in dragOrigin = nil })
-                            .simultaneousGesture(MagnificationGesture().onChanged { scale in
-                                guard preset.crops else { return }
-                                if pinchOrigin == nil { pinchOrigin = adjustment.zoom }
-                                adjustment.zoom = min(4, max(1, (pinchOrigin ?? 1) * Double(scale)))
-                            }.onEnded { _ in pinchOrigin = nil })
-                    }.aspectRatio(outputSize.width > 0 && outputSize.height > 0 ? outputSize.width / outputSize.height : 16 / 9, contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: 18)).accessibilityIdentifier("maker.adjust.preview")
-                    if preset.crops {
-                        Text("拖动移动位置，双指或滑杆调整大小。").font(.subheadline).foregroundStyle(.secondary)
-                        HStack { Image(systemName: "minus.magnifyingglass"); Slider(value: $adjustment.zoom, in: 1...4); Image(systemName: "plus.magnifyingglass") }
-                    } else if preset.preservesSourceSize {
-                        Text("按原始像素输出，不缩放。旋转和翻转会改变宽高。").font(.subheadline).foregroundStyle(.secondary)
-                    } else {
-                        Text("照片始终完整居中，模糊延伸会自动填满空余区域。").font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Button { adjustment.turns = (adjustment.turns + 1) % 4 } label: { Label("旋转", systemImage: "rotate.right") }
-                        Button { adjustment.flipX.toggle() } label: { Text("左右翻转") }
-                        Button { adjustment.flipY.toggle() } label: { Text("上下翻转") }
-                    }.buttonStyle(.bordered).font(.subheadline)
-                    HStack {
-                        Button("还原") { adjustment = .init() }.buttonStyle(.bordered).frame(maxWidth: .infinity)
-                        Button("确定") { save(adjustment, preset, outputSize); dismiss() }.buttonStyle(.borderedProminent).frame(maxWidth: .infinity)
-                            .disabled(preset == .custom && outputSize == .zero)
-                    }
-                    if let error { Text(error).foregroundStyle(.red) }
-                }.padding(20).frame(maxWidth: 680).frame(maxWidth: .infinity)
-            }.navigationTitle("调整壁纸").navigationBarTitleDisplayMode(.inline)
-                .toolbar { Button("取消") { dismiss() } }
-                .task {
-                    source = await Task.detached { try? WallpaperRenderer.load(photo.url, maximum: 1200) }.value
-                    if source == nil { error = "无法读取原图预览。" }
+                    if let error { Text(error).font(.caption).foregroundStyle(.red) }
+                    controls(landscape: landscape)
                 }
-                .task(id: "\(source != nil)-\(preset.rawValue)-\(outputSize)-\(adjustment)") {
-                    guard let source, outputSize.width > 0, outputSize.height > 0 else { preview = nil; return }
-                    let snapshot = adjustment
-                    let selected = preset
-                    let ratio = min(1, 900 / max(outputSize.width, outputSize.height))
-                    let size = CGSize(width: max(1, outputSize.width * ratio), height: max(1, outputSize.height * ratio))
-                    do {
-                        try await Task.sleep(nanoseconds: 120_000_000)
-                        let rendered = try await Task.detached(priority: .userInitiated) {
-                            try autoreleasepool { try WallpaperRenderer.render(image: source, preset: selected, size: size, adjustment: snapshot) }
-                        }.value
-                        try Task.checkCancellation(); preview = rendered; error = nil
-                    } catch { if !Task.isCancelled { self.error = "预览失败：\(error.localizedDescription)" } }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+            }
+            .navigationTitle("调整壁纸")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("确定") { save(adjustment, preset, outputSize); dismiss() }
+                        .disabled(outputSize == .zero || source == nil)
                 }
+            }
+            .sheet(isPresented: $showingSizes) { sizePicker }
+            .task {
+                source = await Task.detached { try? WallpaperRenderer.load(photo.url, maximum: 2400) }.value
+                if source == nil { error = "无法读取原图预览。" }
+            }
+            .task(id: "\(source != nil)-\(preset.rawValue)-\(outputSize)-\(adjustment.turns)-\(adjustment.flipX)-\(adjustment.flipY)") {
+                guard !preset.crops, let source, outputSize != .zero else { return }
+                let snapshot = adjustment
+                let selected = preset
+                let ratio = min(1, 1200 / max(outputSize.width, outputSize.height))
+                let size = CGSize(width: max(1, outputSize.width * ratio), height: max(1, outputSize.height * ratio))
+                let rendered = await Task.detached {
+                    try? WallpaperRenderer.render(image: source, preset: selected, size: size, adjustment: snapshot)
+                }.value
+                if !Task.isCancelled { preview = rendered }
+            }
         }.tint(CanvasTheme.accent)
+    }
+
+    private func cropPreview(size: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
+            Color(uiColor: .secondarySystemGroupedBackground)
+            if preset.crops, let source, size.width > 0, size.height > 0 {
+                let rect = cropRect(source: source, size: size)
+                Image(uiImage: source).resizable()
+                    .frame(width: adjustment.turns % 2 == 0 ? rect.width : rect.height,
+                           height: adjustment.turns % 2 == 0 ? rect.height : rect.width)
+                    .rotationEffect(.degrees(Double(adjustment.turns) * 90))
+                    .scaleEffect(x: adjustment.flipX ? -1 : 1, y: adjustment.flipY ? -1 : 1)
+                    .position(x: rect.midX, y: rect.midY)
+                Path { path in
+                    for third in 1...2 {
+                        let x = size.width * CGFloat(third) / 3
+                        let y = size.height * CGFloat(third) / 3
+                        path.move(to: CGPoint(x: x, y: 0))
+                        path.addLine(to: CGPoint(x: x, y: size.height))
+                        path.move(to: CGPoint(x: 0, y: y))
+                        path.addLine(to: CGPoint(x: size.width, y: y))
+                    }
+                }.stroke(.white.opacity(0.55), lineWidth: 1).allowsHitTesting(false)
+            } else if let preview {
+                Image(uiImage: preview).resizable().scaledToFit()
+                    .frame(width: size.width, height: size.height)
+            } else if error == nil {
+                ProgressView().frame(width: size.width, height: size.height)
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .clipped()
+        .contentShape(Rectangle())
+        .gesture(DragGesture().onChanged { value in
+            guard preset.crops, let source else { return }
+            if dragOrigin == nil { dragOrigin = CGPoint(x: adjustment.x, y: adjustment.y) }
+            guard let origin = dragOrigin else { return }
+            let rect = cropRect(source: source, size: size)
+            if rect.width > size.width + 0.01 {
+                adjustment.x = min(1, max(0, origin.x - value.translation.width / (rect.width - size.width)))
+            }
+            if rect.height > size.height + 0.01 {
+                adjustment.y = min(1, max(0, origin.y - value.translation.height / (rect.height - size.height)))
+            }
+        }.onEnded { _ in dragOrigin = nil })
+        .simultaneousGesture(MagnificationGesture().onChanged { scale in
+            guard preset.crops else { return }
+            if pinchOrigin == nil { pinchOrigin = adjustment.zoom }
+            adjustment.zoom = min(4, max(1, (pinchOrigin ?? 1) * Double(scale)))
+        }.onEnded { _ in pinchOrigin = nil })
+        .accessibilityIdentifier("maker.adjust.preview")
+    }
+
+    private func cropRect(source: UIImage, size: CGSize) -> CGRect {
+        let rotated = adjustment.turns % 2 == 0 ? source.size : CGSize(width: source.size.height, height: source.size.width)
+        return CropGeometry.rect(source: rotated, target: size, zoom: adjustment.zoom, x: adjustment.x, y: adjustment.y)
+    }
+
+    private func controls(landscape: Bool) -> some View {
+        VStack(spacing: 6) {
+            HStack {
+                Button { showingSizes = true } label: {
+                    Label(preset.title, systemImage: "rectangle.expand.vertical")
+                }.accessibilityIdentifier("maker.presets")
+                if outputSize != .zero {
+                    Text("\(Int(outputSize.width)) × \(Int(outputSize.height))").monospacedDigit()
+                }
+                Spacer()
+                if !preset.crops {
+                    Button("自由裁剪") {
+                        if outputSize.width <= 8192, outputSize.height <= 8192,
+                           outputSize.width * outputSize.height <= 33_554_432, outputSize != .zero {
+                            widthText = String(Int(outputSize.width))
+                            heightText = String(Int(outputSize.height))
+                        }
+                        preset = .custom
+                        if outputSize == .zero { showingSizes = true }
+                    }
+                }
+            }.font(.subheadline)
+            HStack {
+                Text("缩放")
+                Slider(value: $adjustment.zoom, in: 1...4).accessibilityLabel("缩放")
+                Text(String(format: "%.2f×", adjustment.zoom)).monospacedDigit()
+            }.font(.subheadline).disabled(!preset.crops || source == nil)
+            HStack {
+                Button("旋转") { adjustment.turns = (adjustment.turns + 1) % 4 }
+                Button("左右翻转") { adjustment.flipX.toggle() }
+                Button("上下翻转") { adjustment.flipY.toggle() }
+                Spacer()
+                Button("还原") { adjustment = .init() }
+            }.font(.subheadline)
+            if !landscape { Text("横放手机查看大图 · 拖动取景，双指缩放").font(.caption).foregroundStyle(.secondary) }
+        }
+    }
+
+    private var sizePicker: some View {
+        NavigationStack {
+            Form {
+                Picker("快速尺寸", selection: $preset) {
+                    ForEach(WallpaperPreset.allCases) { option in Text(option.title).tag(option) }
+                }
+                if preset == .custom {
+                    TextField("宽度（像素）", text: $widthText).keyboardType(.numberPad)
+                    TextField("高度（像素）", text: $heightText).keyboardType(.numberPad)
+                    if outputSize == .zero {
+                        Text("宽高须为 1–8192 像素，总像素数不超过 33554432。").foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("输出尺寸")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { Button("完成") { showingSizes = false }.disabled(outputSize == .zero) }
+        }
     }
 }

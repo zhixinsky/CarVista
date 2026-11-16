@@ -154,7 +154,7 @@ struct ComposeWallpaperView: View {
                     }
                 }.id(item.id)
             }
-            .sheet(isPresented: $adjusting) {
+            .fullScreenCover(isPresented: $adjusting) {
                 if let photo { WallpaperAdjustmentView(photo: photo, preset: preset, outputSize: outputSize, detectedSize: model.detectedWallpaperSize, sourceSize: sourcePixels) { adjustment, selectedPreset, size in
                     guard let index = photos.firstIndex(where: { $0.id == photo.id }) else { return }
                     if selectedPreset == .custom { customWidth = Int(size.width); customHeight = Int(size.height) }
