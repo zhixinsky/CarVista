@@ -9,7 +9,6 @@ struct ComposeWallpaperView: View {
     @State private var current = 0
     @State private var loading = false
     @State private var adjusting = false
-    @State private var builtin: BuiltinWallpaper?
     @State private var applying = false
     @State private var problem: String?
     @State private var generated: [UUID: [SavedWallpaper]] = [:]
@@ -83,11 +82,11 @@ struct ComposeWallpaperView: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("内置壁纸").font(.headline)
-                    Text("选择整屏壁纸，拖动分界线截取右侧 CarPlay 画面。").font(.caption).foregroundStyle(.secondary)
+                    Text("已裁好。点选后可直接应用当前照片。").font(.caption).foregroundStyle(.secondary)
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack {
                             ForEach(BuiltinWallpaper.all) { item in
-                                Button { builtin = item } label: {
+                                Button { selectBuiltin(item) } label: {
                                     VStack {
                                         BuiltinWallpaperPreview(wallpaper: item)
                                             .frame(width: 160, height: 44)
@@ -117,9 +116,9 @@ struct ComposeWallpaperView: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                     Button("检测车机壁纸") { model.scan(deep: false) }.disabled(locked || model.group.isEmpty)
                     if !model.targets.isEmpty { Text("已找到 \(model.targets.count) 个缓存文件").font(.caption).foregroundStyle(.secondary) }
-                    Button { applying = true } label: {
+                    Button { prepareCurrentWallpaper() } label: {
                         Label("应用当前照片", systemImage: "car.side.fill").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
-                    }.buttonStyle(.borderedProminent).disabled(photo.flatMap { generated[$0.id] } == nil || locked)
+                    }.buttonStyle(.borderedProminent).disabled(photo == nil || locked)
                     WallpaperRefreshButton()
                     NavigationLink("查看历史记录与已生成文件") { CanvasHistoryView() }
                     Text(model.message).font(.caption).foregroundStyle(.secondary)
@@ -131,22 +130,6 @@ struct ComposeWallpaperView: View {
             .task(id: selection) { await importSelection() }
             .task(id: photo?.id) { await loadSourcePixels() }
             .task(id: renderKey) { await refreshPreview() }
-            .sheet(item: $builtin) { item in
-                BuiltinWallpaperView(wallpaper: item) { incoming in
-                    var updated = photos
-                    let old: MakerPhoto?
-                    if updated.indices.contains(current) { old = updated[current]; updated[current] = incoming }
-                    else { old = nil; updated.append(incoming) }
-                    do {
-                        try MakerDraft.save(updated)
-                        photos = updated; generated = [:]
-                        if let old { try? FileManager.default.removeItem(at: old.url) }
-                    } catch {
-                        try? FileManager.default.removeItem(at: incoming.url)
-                        problem = "保存壁纸失败：\(error.localizedDescription)"
-                    }
-                }.id(item.id)
-            }
             .fullScreenCover(isPresented: $adjusting) {
                 if let photo { WallpaperAdjustmentView(photo: photo) { crop in
                     guard let index = photos.firstIndex(where: { $0.id == photo.id }) else { return }
@@ -156,6 +139,52 @@ struct ComposeWallpaperView: View {
             .sheet(isPresented: $applying) {
                 if let photo, let entries = generated[photo.id] { NavigationStack { ApplyWallpaperView(entries: entries) } }
             }
+    }
+    private func selectBuiltin(_ wallpaper: BuiltinWallpaper) {
+        guard !locked else { return }
+        loading = true
+        problem = nil
+        Task {
+            defer { loading = false }
+            do {
+                let incoming = try await Task.detached {
+                    try MakerDraft.importPhoto(data: Data(contentsOf: wallpaper.originalURL()))
+                }.value
+                var updated = photos
+                let old = photo
+                if old == nil { updated.append(incoming) } else { updated[current] = incoming }
+                do {
+                    try MakerDraft.save(updated)
+                } catch {
+                    try? FileManager.default.removeItem(at: incoming.url)
+                    throw error
+                }
+                photos = updated
+                if let old {
+                    generated[old.id] = nil
+                    try? FileManager.default.removeItem(at: old.url)
+                }
+            } catch {
+                problem = "导入内置壁纸失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func prepareCurrentWallpaper() {
+        guard let photo, !locked else { return }
+        if generated[photo.id] != nil {
+            applying = true
+            return
+        }
+        problem = nil
+        model.generatePhotos([photo], preset: .original, size: outputSize) { batches in
+            guard let entries = batches.first, !entries.isEmpty else {
+                problem = model.message
+                return
+            }
+            generated[photo.id] = entries
+            applying = true
+        }
     }
     private var cardColor: Color { Color(uiColor: .secondarySystemGroupedBackground) }
     private func step(_ number: String, _ title: String, _ subtitle: String) -> some View {

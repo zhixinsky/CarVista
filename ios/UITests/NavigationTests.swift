@@ -2,19 +2,20 @@ import XCTest
 
 final class NavigationTests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
-    func testBuiltinSplitSelection() throws {
+    func testBuiltinSelectionUsesOriginalSize() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-CCGuideSeen", "YES"]
         app.launch()
         app.buttons["home.wallpaper"].tap()
-        let wallpaper = app.buttons["浅海人鱼"]
+        let wallpaper = app.buttons["壁纸 1"]
         for _ in 0..<3 { if wallpaper.isHittable { break }; app.swipeUp() }
         XCTAssertTrue(wallpaper.isHittable)
         wallpaper.tap()
-        XCTAssertTrue(app.buttons["builtin.use"].waitForExistence(timeout: 10))
-        app.sliders["右侧壁纸起点"].adjust(toNormalizedSliderPosition: 0.4)
-        capture(app, "10-Builtin-Split")
-        app.buttons["取消"].tap()
+        let output = app.staticTexts["maker.output"]
+        let originalSize = NSPredicate(format: "label CONTAINS %@", "4064 × 1112")
+        expectation(for: originalSize, evaluatedWith: output)
+        waitForExpectations(timeout: 10)
+        capture(app, "10-Builtin-Original")
     }
     private func capture(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())

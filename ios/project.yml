@@ -9,6 +9,9 @@ targets:
     platform: iOS
     sources:
       - Sources
+      - path: BuiltinWallpapers
+        type: folder
+        buildPhase: resources
       - path: Vendor/WQFiles
         excludes: [LICENSE, tests]
       - path: LICENSE

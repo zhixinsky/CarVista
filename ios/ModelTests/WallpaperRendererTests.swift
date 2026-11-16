@@ -3,22 +3,20 @@ import UIKit
 @testable import CarCanvasWorkshop
 
 final class WallpaperRendererTests: XCTestCase {
-    func testBuiltinRightCropPreservesPixelsAndBounds() throws {
-        for item in BuiltinWallpaper.all {
-            let original = try XCTUnwrap(UIImage(named: item.id, in: Bundle(for: WorkshopModel.self), compatibleWith: nil))
-            XCTAssertEqual(original.cgImage?.width, 6008)
-            XCTAssertEqual(original.cgImage?.height, 934)
-            for start in [0, 2600, 3004, 6007] {
-                let crop = try BuiltinWallpaper.cropRight(original, start: start)
-                XCTAssertEqual(crop.cgImage?.width, 6008 - start)
-                XCTAssertEqual(crop.cgImage?.height, 934)
-                XCTAssertEqual(sample(crop, x: 0, y: 400), sample(original, x: start, y: 400))
-                XCTAssertEqual(sample(crop, x: 6007 - start, y: 900), sample(original, x: 6007, y: 900))
-            }
-            XCTAssertThrowsError(try BuiltinWallpaper.cropRight(original, start: -1))
-            XCTAssertThrowsError(try BuiltinWallpaper.cropRight(original, start: 6008))
+    func testBuiltinWallpapersKeepTheirSourceDimensions() throws {
+        let dimensions = [
+            CGSize(width: 4064, height: 1112), CGSize(width: 3972, height: 1088),
+            CGSize(width: 2072, height: 568), CGSize(width: 2072, height: 568),
+            CGSize(width: 4096, height: 1120), CGSize(width: 7879, height: 2160),
+            CGSize(width: 4889, height: 1340), CGSize(width: 5253, height: 1440),
+            CGSize(width: 4889, height: 1340)
+        ]
+        let bundle = Bundle(for: WorkshopModel.self)
+        XCTAssertEqual(BuiltinWallpaper.all.count, dimensions.count)
+        for (item, size) in zip(BuiltinWallpaper.all, dimensions) {
+            XCTAssertEqual(try WallpaperRenderer.pixelSize(item.originalURL(in: bundle)), size)
+            XCTAssertNotNil(UIImage(named: item.previewName, in: bundle, compatibleWith: nil))
         }
-        XCTAssertNil(WallpaperPreset(rawValue: "split"))
     }
     private func fixture() -> UIImage {
         UIGraphicsImageRenderer(size: CGSize(width: 100, height: 200), format: WallpaperRenderer.format()).image { c in
