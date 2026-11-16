@@ -88,6 +88,8 @@ struct WallpaperGalleryView: View {
             .background(.background)
         }
         .navigationTitle("图库")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
     }
 }
 
@@ -136,7 +138,6 @@ private struct BingWallpaperGalleryView: View {
                 }
             }.frame(maxWidth: 720).padding(16).frame(maxWidth: .infinity)
         }
-        .navigationTitle("图库")
         .refreshable { await reload() }
         .task { if images.isEmpty { await reload() } }
         .sheet(item: $selection) { item in

@@ -20,8 +20,10 @@ private enum CommonsPhotoAPI {
     private struct Feed: Decodable {
         let query: Results?
         let continuation: Cursor?
-        enum CodingKeys: String, CodingKey { case query; case continuation = "continue" }
+        let error: APIError?
+        enum CodingKeys: String, CodingKey { case query, error; case continuation = "continue" }
     }
+    private struct APIError: Decodable { let code: String }
     struct Cursor: Decodable {
         let offset: Int
         let token: String
@@ -38,7 +40,8 @@ private enum CommonsPhotoAPI {
             guard let info = imageinfo?.first, let width = info.width, let height = info.height,
                   width >= 1280, height >= 360, ["image/jpeg", "image/png", "image/webp"].contains(info.mime ?? ""),
                   let original = info.url, original.scheme == "https", original.host == "upload.wikimedia.org",
-                  let thumb = info.thumburl, thumb.scheme == "https", thumb.host == "upload.wikimedia.org",
+                  let thumb = info.thumburl, thumb.scheme == "https",
+                  ["upload.wikimedia.org", "thumb.wikimedia.org"].contains(thumb.host ?? ""),
                   let source = info.descriptionurl, source.scheme == "https", source.host == "commons.wikimedia.org",
                   let license = info.extmetadata?["LicenseShortName"]?.value, !license.isEmpty else { return nil }
             let author = info.extmetadata?["Artist"]?.value
@@ -82,6 +85,7 @@ private enum CommonsPhotoAPI {
         guard let url = endpoint.url else { throw URLError(.badURL) }
         let data = try await fetch(url)
         let feed = try JSONDecoder().decode(Feed.self, from: data)
+        guard feed.error == nil else { throw URLError(.badServerResponse) }
         return ((feed.query?.pages ?? []).sorted { ($0.index ?? .max) < ($1.index ?? .max) }.compactMap(\.photo), feed.continuation)
     }
 
