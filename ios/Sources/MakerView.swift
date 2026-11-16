@@ -62,7 +62,7 @@ struct ComposeWallpaperView: View {
                         else { ProgressView("正在生成预览…").frame(height: 160) }
                     }.frame(maxWidth: .infinity).clipShape(RoundedRectangle(cornerRadius: 18))
                         .overlay(alignment: .topTrailing) { if previewing && preview != nil { ProgressView().padding(12).background(.regularMaterial, in: Capsule()) } }
-                    if !photos.isEmpty {
+                    if photos.count > 1 {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 10) {
                                 ForEach(Array(photos.enumerated()), id: \.element.id) { index, item in
