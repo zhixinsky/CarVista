@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 import PhotosUI
+import Photos
 
 struct ComposeWallpaperView: View {
     @EnvironmentObject var model: WorkshopModel
@@ -14,6 +15,8 @@ struct ComposeWallpaperView: View {
     @State private var loading = false
     @State private var adjusting = false
     @State private var colorEditing = false
+    @State private var savingPhoto = false
+    @State private var savedToPhotos = false
     @State private var cropOrientation = CropOrientationSession()
     @State private var applying = false
     @State private var problem: String?
@@ -38,7 +41,7 @@ struct ComposeWallpaperView: View {
         guard outputSize.width > 0, outputSize.height > 0 else { return "读取原图尺寸…" }
         return "\(Int(outputSize.width)) × \(Int(outputSize.height))"
     }
-    private var locked: Bool { loading || model.busy }
+    private var locked: Bool { loading || savingPhoto || model.busy }
     private var renderKey: String { "\(photo?.id.uuidString ?? "empty")-\(String(describing: photo?.adjustment))-\(outputLabel)" }
 
     var body: some View {
@@ -80,27 +83,42 @@ struct ComposeWallpaperView: View {
                             Text("输出 \(outputLabel)").font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("maker.output")
                         }
                     }
-                    HStack(spacing: 10) {
+                    HStack(spacing: 6) {
                         PhotosPicker(selection: $selection, matching: .images) {
-                            Label(photos.isEmpty ? "相册" : "更换照片", systemImage: "photo.badge.plus").frame(maxWidth: .infinity)
+                            if photo == nil {
+                                Label("相册", systemImage: "photo.badge.plus").frame(maxWidth: .infinity)
+                            } else {
+                                ViewThatFits(in: .horizontal) {
+                                    Text("更换照片").fixedSize()
+                                    Text("换图").fixedSize()
+                                    Image(systemName: "photo.badge.plus")
+                                }
+                            }
                         }.buttonStyle(.borderedProminent).disabled(locked).accessibilityIdentifier("maker.select")
+                            .accessibilityLabel(photo == nil ? "相册" : "更换照片")
                         if photo != nil {
                             Button("调整") { adjusting = true }.buttonStyle(.bordered).disabled(locked)
                                 .accessibilityIdentifier("maker.adjust")
+                            Button("整体校色") { colorEditing = true }.buttonStyle(.bordered).disabled(locked)
+                                .fixedSize(horizontal: true, vertical: false)
+                            Spacer(minLength: 0)
                             Button(role: .destructive) { removeCurrent() } label: { Image(systemName: "trash") }
                                 .buttonStyle(.bordered).disabled(locked).accessibilityLabel("移除当前照片")
                         } else {
                             if let openGallery { Button("在线图库", action: openGallery).buttonStyle(.bordered) }
                         }
-                    }
+                    }.controlSize(.small)
                     if loading { ProgressView("正在导入照片…") }
                     if photo != nil {
-                        Button { colorEditing = true } label: {
-                            Label("整体校色", systemImage: "slider.horizontal.3")
-                        }.buttonStyle(.bordered).disabled(locked)
-                        Button { prepareCurrentWallpaper() } label: {
-                            Label("应用到 CarPlay", systemImage: "car.side.fill").frame(maxWidth: .infinity)
-                        }.buttonStyle(.borderedProminent).disabled(locked)
+                        HStack(spacing: 8) {
+                            Button { downloadPhoto() } label: {
+                                if savingPhoto { ProgressView().accessibilityLabel("正在保存到相册") }
+                                else { Label("下载", systemImage: "arrow.down.to.line") }
+                            }.buttonStyle(.bordered).disabled(locked).accessibilityHint("保存调整后的照片到相册")
+                            Button { prepareCurrentWallpaper() } label: {
+                                Label("应用到 CarPlay", systemImage: "car.side.fill").frame(maxWidth: .infinity)
+                            }.buttonStyle(.borderedProminent).disabled(locked)
+                        }
                     }
                     if let problem { Text(problem).font(.subheadline).foregroundStyle(.red) }
                 }.padding(16).frame(maxWidth: .infinity)
@@ -164,6 +182,7 @@ struct ComposeWallpaperView: View {
                 }
             }
             .onAppear { initialize() }
+            .alert("已保存到相册", isPresented: $savedToPhotos) { Button("好", role: .cancel) {} }
             .task(id: galleryImport?.id) { await importGallerySelection() }
             .task(id: selection) { await importSelection() }
             .task(id: photo?.id) { await loadSourcePixels() }
@@ -189,6 +208,35 @@ struct ComposeWallpaperView: View {
             .sheet(isPresented: $applying) {
                 if let photo, let entries = generated[photo.id] { NavigationStack { ApplyWallpaperView(entries: entries) } }
             }
+    }
+
+    private func downloadPhoto() {
+        guard let photo, !locked else { return }
+        savingPhoto = true
+        problem = nil
+        Task {
+            defer { savingPhoto = false }
+            let access = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+            guard access == .authorized || access == .limited else {
+                problem = "无法保存到相册。请在系统设置中允许 CarVista 添加照片。"
+                return
+            }
+            do {
+                let png = try await Task.detached {
+                    try autoreleasepool {
+                        let image = try WallpaperRenderer.render(url: photo.url, preset: .original, size: .zero, adjustment: photo.adjustment)
+                        guard let data = image.pngData() else { throw CocoaError(.fileWriteUnknown) }
+                        return data
+                    }
+                }.value
+                try await PHPhotoLibrary.shared().performChanges {
+                    PHAssetCreationRequest.forAsset().addResource(with: .photo, data: png, options: nil)
+                }
+                savedToPhotos = true
+            } catch {
+                problem = "保存到相册失败：\(error.localizedDescription)"
+            }
+        }
     }
     private func showTool(_ destination: WallpaperRoute) {
         if let openTool { openTool(destination) } else { tool = destination }
