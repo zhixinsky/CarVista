@@ -17,6 +17,7 @@ struct ComposeWallpaperView: View {
     @State private var colorEditing = false
     @State private var savingPhoto = false
     @State private var savedToPhotos = false
+    @State private var generatedAlert = false
     @State private var cropOrientation = CropOrientationSession()
     @State private var applying = false
     @State private var problem: String?
@@ -124,7 +125,7 @@ struct ComposeWallpaperView: View {
                     if photo != nil {
                         HStack(spacing: 8) {
                             Button { generate() } label: {
-                                Text("仅生成壁纸文件").multilineTextAlignment(.center)
+                                Text("生成壁纸文件").multilineTextAlignment(.center)
                             }.buttonStyle(.bordered).tint(.indigo).disabled(locked)
                                 .accessibilityIdentifier("wallpaper.generate")
                             Button { prepareCurrentWallpaper() } label: {
@@ -196,6 +197,12 @@ struct ComposeWallpaperView: View {
             }
             .onAppear { initialize() }
             .alert("已保存到相册", isPresented: $savedToPhotos) { Button("好", role: .cancel) {} }
+            .alert("壁纸文件已生成", isPresented: $generatedAlert) {
+                Button("查看历史记录") { showTool(.history) }
+                Button("知道了", role: .cancel) {}
+            } message: {
+                Text("你可以在「历史记录」中查看、分享或应用已生成的壁纸文件。")
+            }
             .task(id: galleryImport?.id) { await importGallerySelection() }
             .task(id: selection) { await importSelection() }
             .task(id: photo?.id) { await loadSourcePixels() }
@@ -391,6 +398,7 @@ struct ComposeWallpaperView: View {
         model.generatePhotos(snapshot, preset: .original, size: outputSize) { batches in
             generated = Dictionary(uniqueKeysWithValues: zip(snapshot, batches).map { ($0.0.id, $0.1) })
             if batches.isEmpty { problem = model.message }
+            else { generatedAlert = true }
         }
     }
 }

@@ -95,7 +95,7 @@ struct WallpaperAdjustmentView: View {
                         Button("全图") { zoom = 1 }.disabled(zoom == 1)
                     }.font(.subheadline)
                     HStack(spacing: 6) {
-                        if showsFineControls {
+                        if showsFineControls && ratio == .free {
                             Picker("微调边线", selection: Binding(get: { selected }, set: { edge in
                                 selected = edge
                                 if zoom > 1 { focusSelectedEdge() }
@@ -122,6 +122,7 @@ struct WallpaperAdjustmentView: View {
                         .buttonStyle(.borderedProminent)
                         .fixedSize(horizontal: true, vertical: false)
                         .accessibilityIdentifier("crop.fineControls")
+                        .disabled(ratio != .free)
                         .accessibilityValue(showsFineControls ? "已展开" : "已收起")
                     }.frame(minHeight: 44)
                 }
@@ -247,6 +248,7 @@ struct WallpaperAdjustmentView: View {
             : min(Int(pixels.height) - height, max(0, Int((current.rect.midY - CGFloat(height) / 2).rounded())))
         crop = WallpaperPixelCrop(left: left, top: top, right: left + width, bottom: top + height)
         ratio = option
+        showsFineControls = false
         zoom = 1
     }
 
@@ -420,8 +422,8 @@ struct WallpaperAdjustmentView: View {
         let direction = selected.vertical ? (delta < 0 ? "左" : "右") : (delta < 0 ? "上" : "下")
         return Button {
             guard let crop else { return }
-            if ratio == .free { move(selected, to: crop[keyPath: selected.coordinate] + delta) }
-            else { translate(crop, x: selected.vertical ? delta : 0, y: selected.vertical ? 0 : delta) }
+            guard ratio == .free else { return }
+            move(selected, to: crop[keyPath: selected.coordinate] + delta)
         } label: {
             Image(systemName: "triangle.fill")
                 .rotationEffect(.degrees(selected.vertical ? Double(delta) * 90 : (delta < 0 ? 0 : 180)))
@@ -430,7 +432,7 @@ struct WallpaperAdjustmentView: View {
         }
         .buttonStyle(.borderless)
         .disabled(cropLocked)
-        .accessibilityLabel("\(ratio == .free ? selected.rawValue : "裁剪框")向\(direction)移动 1 像素")
+        .accessibilityLabel("\(selected.rawValue)向\(direction)移动 1 像素")
     }
 
     private func move(_ edge: Edge, to value: Int) {
