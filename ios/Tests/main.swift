@@ -78,7 +78,7 @@ expect(WallpaperPreset.original.preservesSourceSize, "original preset should kee
 expect(WallpaperPreset.original.size(source: CGSize(width: 4032, height: 3024)) == CGSize(width: 4032, height: 3024), "original preset resized source")
 expect(!WallpaperPreset.wide.preservesSourceSize, "fixed preset claimed original size")
 for preset in WallpaperPreset.allCases where !preset.preservesSourceSize {
-    expect(preset.crops == (preset == .standard), "crop presets changed")
+    expect(preset.crops == (preset == .standard || preset == .custom), "crop presets changed")
     for source in [CGSize(width: 800, height: 1200), CGSize(width: 1200, height: 800), CGSize(width: 7879, height: 2160)] {
         let target = preset.size()
         let fit = CropGeometry.fit(source: source, target: target)

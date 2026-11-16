@@ -63,18 +63,14 @@ final class NavigationTests: XCTestCase {
         app.buttons["home.wallpaper"].tap()
         XCTAssertTrue(app.buttons["maker.adjust"].waitForExistence(timeout: 15))
         capture(app, "07-Maker-Photo")
-        app.swipeUp()
-        let presets = app.segmentedControls["maker.presets"]
-        XCTAssertTrue(presets.waitForExistence(timeout: 5))
-        for name in ["标准", "宽屏", "大连屏", "原尺寸", "自动"] {
-            presets.buttons[name].tap()
-            XCTAssertTrue(presets.buttons[name].isSelected)
-            capture(app, "08-Preset-\(name)")
-        }
-        presets.buttons["标准"].tap()
-        app.swipeDown()
         app.buttons["maker.adjust"].tap()
         XCTAssertTrue(app.navigationBars["调整壁纸"].waitForExistence(timeout: 5))
+        let presets = app.buttons["maker.presets"]
+        XCTAssertTrue(presets.waitForExistence(timeout: 5))
+        presets.tap()
+        app.buttons["自由裁剪"].tap()
+        XCTAssertTrue(app.textFields["宽度（像素）"].exists)
+        XCTAssertTrue(app.textFields["高度（像素）"].exists)
         app.buttons["旋转"].tap()
         capture(app, "09-Adjustment")
         app.buttons["还原"].tap()

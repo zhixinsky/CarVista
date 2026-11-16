@@ -4,23 +4,54 @@ import SwiftUI
 struct WallpaperAdjustmentView: View {
     @Environment(\.dismiss) private var dismiss
     let photo: MakerPhoto
-    let preset: WallpaperPreset
-    let outputSize: CGSize
-    let save: (WallpaperAdjustment) -> Void
+    let detectedSize: CGSize?
+    let sourceSize: CGSize?
+    let save: (WallpaperAdjustment, WallpaperPreset, CGSize) -> Void
+    @State private var preset: WallpaperPreset
+    @State private var widthText: String
+    @State private var heightText: String
+    private var outputSize: CGSize {
+        if preset == .custom {
+            guard let w = Int(widthText), let h = Int(heightText),
+                  (1...8192).contains(w), (1...8192).contains(h), w * h <= 33_554_432 else { return .zero }
+            return CGSize(width: w, height: h)
+        }
+        let pixels = sourceSize ?? source?.size
+        let rotated = pixels.map { adjustment.turns % 2 == 0 ? $0 : CGSize(width: $0.height, height: $0.width) }
+        return preset.size(detected: detectedSize, source: rotated)
+    }
     @State private var adjustment: WallpaperAdjustment
     @State private var preview: UIImage?
     @State private var source: UIImage?
     @State private var error: String?
     @State private var dragOrigin: CGPoint?
     @State private var pinchOrigin: Double?
-    init(photo: MakerPhoto, preset: WallpaperPreset, outputSize: CGSize, save: @escaping (WallpaperAdjustment) -> Void) {
-        self.photo = photo; self.preset = preset; self.outputSize = outputSize; self.save = save
+    init(photo: MakerPhoto, preset: WallpaperPreset, outputSize: CGSize, detectedSize: CGSize?, sourceSize: CGSize?, save: @escaping (WallpaperAdjustment, WallpaperPreset, CGSize) -> Void) {
+        self.photo = photo; self.detectedSize = detectedSize; self.sourceSize = sourceSize; self.save = save
+        _preset = State(initialValue: preset)
+        _widthText = State(initialValue: String(Int(outputSize.width > 0 ? outputSize.width : 1920)))
+        _heightText = State(initialValue: String(Int(outputSize.height > 0 ? outputSize.height : 810)))
         _adjustment = State(initialValue: photo.adjustment)
     }
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 22) {
+                    Picker("快速尺寸", selection: $preset) {
+                        ForEach(WallpaperPreset.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }.pickerStyle(.menu).accessibilityIdentifier("maker.presets")
+                    if preset == .custom {
+                        HStack {
+                            TextField("宽度（像素）", text: $widthText).accessibilityLabel("宽度（像素）")
+                            Text("×")
+                            TextField("高度（像素）", text: $heightText).accessibilityLabel("高度（像素）")
+                        }.keyboardType(.numberPad).textFieldStyle(.roundedBorder)
+                        if outputSize == .zero {
+                            Text("宽高须为 1–8192 像素，总像素数不超过 33554432。").font(.caption).foregroundStyle(.red)
+                        }
+                    }
                     Text(outputSize.width > 0 ? "\(preset.title) · \(Int(outputSize.width)) × \(Int(outputSize.height))" : "\(preset.title) · 读取原图尺寸…").foregroundStyle(.secondary)
                     GeometryReader { proxy in
                         Group {
@@ -58,19 +89,27 @@ struct WallpaperAdjustmentView: View {
                     }.buttonStyle(.bordered).font(.subheadline)
                     HStack {
                         Button("还原") { adjustment = .init() }.buttonStyle(.bordered).frame(maxWidth: .infinity)
-                        Button("确定") { save(adjustment); dismiss() }.buttonStyle(.borderedProminent).frame(maxWidth: .infinity)
+                        Button("确定") { save(adjustment, preset, outputSize); dismiss() }.buttonStyle(.borderedProminent).frame(maxWidth: .infinity)
+                            .disabled(preset == .custom && outputSize == .zero)
                     }
                     if let error { Text(error).foregroundStyle(.red) }
                 }.padding(20).frame(maxWidth: 680).frame(maxWidth: .infinity)
             }.navigationTitle("调整壁纸").navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("取消") { dismiss() } }
-                .task { source = await Task.detached { try? WallpaperRenderer.load(photo.url, maximum: 512) }.value }
-                .task(id: String(describing: adjustment)) {
+                .task {
+                    source = await Task.detached { try? WallpaperRenderer.load(photo.url, maximum: 1200) }.value
+                    if source == nil { error = "无法读取原图预览。" }
+                }
+                .task(id: "\(source != nil)-\(preset.rawValue)-\(outputSize)-\(adjustment)") {
+                    guard let source, outputSize.width > 0, outputSize.height > 0 else { preview = nil; return }
                     let snapshot = adjustment
+                    let selected = preset
+                    let ratio = min(1, 900 / max(outputSize.width, outputSize.height))
+                    let size = CGSize(width: max(1, outputSize.width * ratio), height: max(1, outputSize.height * ratio))
                     do {
                         try await Task.sleep(nanoseconds: 120_000_000)
                         let rendered = try await Task.detached(priority: .userInitiated) {
-                            try autoreleasepool { try WallpaperRenderer.render(url: photo.url, preset: preset, size: outputSize, adjustment: snapshot) }
+                            try autoreleasepool { try WallpaperRenderer.render(image: source, preset: selected, size: size, adjustment: snapshot) }
                         }.value
                         try Task.checkCancellation(); preview = rendered; error = nil
                     } catch { if !Task.isCancelled { self.error = "预览失败：\(error.localizedDescription)" } }

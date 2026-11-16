@@ -5,6 +5,8 @@ import PhotosUI
 struct ComposeWallpaperView: View {
     @EnvironmentObject var model: WorkshopModel
     @AppStorage("LMPreset") private var presetValue = WallpaperPreset.automatic.rawValue
+    @AppStorage("LMCustomWidth") private var customWidth = 1920
+    @AppStorage("LMCustomHeight") private var customHeight = 810
     @State private var photos: [MakerPhoto] = []
     @State private var selection: [PhotosPickerItem] = []
     @State private var current = 0
@@ -21,6 +23,7 @@ struct ComposeWallpaperView: View {
     private var preset: WallpaperPreset { WallpaperPreset(rawValue: presetValue) ?? .automatic }
     private var photo: MakerPhoto? { photos.indices.contains(current) ? photos[current] : nil }
     private var outputSize: CGSize {
+        if preset == .custom { return CGSize(width: customWidth, height: customHeight) }
         guard preset.preservesSourceSize else { return preset.size(detected: model.detectedWallpaperSize) }
         guard let sourcePixels, sourcePixels.width > 0, sourcePixels.height > 0 else { return .zero }
         let turns = (((photo?.adjustment.turns ?? 0) % 4) + 4) % 4
@@ -104,16 +107,7 @@ struct ComposeWallpaperView: View {
                 }.padding(16).background(cardColor, in: RoundedRectangle(cornerRadius: 24))
                 VStack(alignment: .leading, spacing: 16) {
                     step("02", "生成壁纸文件", "每张照片自动生成深色与浅色两个版本。")
-                    Text("输出尺寸").font(.headline)
-                    Picker("输出尺寸", selection: $presetValue) {
-                        ForEach(WallpaperPreset.allCases) { Text($0.title).tag($0.rawValue) }
-                    }.pickerStyle(.segmented).disabled(locked).accessibilityIdentifier("maker.presets")
-                    Text("\(preset.title) · \(outputLabel)").font(.subheadline.bold())
-                    Text(preset.detail).font(.subheadline).foregroundStyle(.secondary)
-                    if preset == .automatic {
-                        Text(model.detectedWallpaperSize == nil ? "尚未检测车机，暂用 1920 × 810。检测成功后自动采用缓存尺寸。" : "已采用检测到的主要缓存尺寸。")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                    Text("输出 · \(outputLabel)").font(.subheadline).foregroundStyle(.secondary)
                     Button { generate() } label: {
                         Label("生成壁纸文件", systemImage: "sparkles").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 9)
                     }.buttonStyle(.borderedProminent).disabled(photos.isEmpty || locked).accessibilityIdentifier("wallpaper.generate")
@@ -161,8 +155,10 @@ struct ComposeWallpaperView: View {
                 }.id(item.id)
             }
             .sheet(isPresented: $adjusting) {
-                if let photo { WallpaperAdjustmentView(photo: photo, preset: preset, outputSize: outputSize) { adjustment in
+                if let photo { WallpaperAdjustmentView(photo: photo, preset: preset, outputSize: outputSize, detectedSize: model.detectedWallpaperSize, sourceSize: sourcePixels) { adjustment, selectedPreset, size in
                     guard let index = photos.firstIndex(where: { $0.id == photo.id }) else { return }
+                    if selectedPreset == .custom { customWidth = Int(size.width); customHeight = Int(size.height) }
+                    presetValue = selectedPreset.rawValue
                     photos[index].adjustment = adjustment; generated = [:]; persist()
                 } }
             }

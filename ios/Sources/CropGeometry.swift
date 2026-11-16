@@ -3,7 +3,7 @@ import Foundation
 import CoreGraphics
 
 enum WallpaperPreset: String, CaseIterable, Codable, Identifiable {
-    case automatic, standard, wide, panoramic, original
+    case automatic, standard, wide, panoramic, original, custom
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -12,9 +12,10 @@ enum WallpaperPreset: String, CaseIterable, Codable, Identifiable {
         case .wide: return "宽屏"
         case .panoramic: return "大连屏"
         case .original: return "原尺寸"
+        case .custom: return "自由裁剪"
         }
     }
-    var crops: Bool { self == .standard }
+    var crops: Bool { self == .standard || self == .custom }
     var preservesSourceSize: Bool { self == .original }
     func size(detected: CGSize? = nil, source: CGSize? = nil) -> CGSize {
         switch self {
@@ -24,6 +25,7 @@ enum WallpaperPreset: String, CaseIterable, Codable, Identifiable {
         case .standard: return CGSize(width: 1440, height: 810)
         case .wide: return CGSize(width: 1920, height: 810)
         case .panoramic: return CGSize(width: 2560, height: 810)
+        case .custom: return source ?? CGSize(width: 1920, height: 810)
         case .original:
             if let source, source.width.isFinite, source.height.isFinite, source.width > 0, source.height > 0 { return source }
             return .zero
