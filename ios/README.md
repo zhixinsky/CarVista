@@ -58,7 +58,7 @@ macOS + Xcode + XcodeGen：在 ios 目录执行 `xcodegen generate`，打开 `Ca
 
 ## 开源许可
 
-新应用代码采用 GPL-3.0-or-later，许可证随应用打包。WQFiles 模块保留原始版权及许可证，版本和来源见 Vendor/NOTICE.md。对应源码：https://github.com/zhixinsky/car 。
+新应用代码采用 GPL-3.0-or-later，许可证随应用打包。WQFiles 模块保留原始版权及许可证，版本和来源见 Vendor/NOTICE.md。对应源码：https://github.com/zhixinsky/CarVista 。
 
 仓库 `build/CarCanvas-MobileHouseArrest.ipa` 是原作者旧版产物，**不是**本工程构建结果，也没有被修改或重新分发到新应用包内。
 

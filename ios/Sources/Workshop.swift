@@ -467,7 +467,7 @@ struct HelpView: View {
                 Text("报告含目录路径与访问日志，分享前可自行查看。")
             }
             Section("开源") {
-                Link("CarVista源码", destination: URL(string: "https://github.com/zhixinsky/car")!)
+                Link("CarVista源码", destination: URL(string: "https://github.com/zhixinsky/CarVista")!)
                 Link("WQFiles / kolbicz", destination: URL(string: "https://github.com/kolbicz/WQFiles")!)
                 Link("worse_query / forcequitOS", destination: URL(string: "https://github.com/forcequitOS/worse_query")!)
                 Text("GPL-3.0-or-later。访问模块版权属于原作者。")

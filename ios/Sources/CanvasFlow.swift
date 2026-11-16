@@ -325,7 +325,7 @@ struct CanvasSettingsView: View {
                 NavigationLink { HelpView() } label: { Label("安装检查与诊断", systemImage: "stethoscope") }
             }
             Section("关于") {
-                Link("项目源码", destination: URL(string: "https://github.com/zhixinsky/car")!)
+                Link("项目源码", destination: URL(string: "https://github.com/zhixinsky/CarVista")!)
                 Text("基于公开研究实现。感谢 WQFiles 与 worse_query 作者。GPL-3.0-or-later。")
                     .font(.footnote).foregroundStyle(.secondary)
                 Text("iOS 27.2 与实际车机效果仍需设备验证。").font(.footnote).foregroundStyle(.secondary)

@@ -10,7 +10,7 @@ Taj C (forcequit) and https://github.com/forcequitOS/worse_query.
 
 The new CarCanvas Workshop source in ios/Sources is GPL-3.0-or-later.
 The original repository's prebuilt IPA is not part of this new app or its build.
-Corresponding source: https://github.com/zhixinsky/car
+Corresponding source: https://github.com/zhixinsky/CarVista
 
 NeoSpring WebKit document in Sources/RespringDocument.swift is adapted from
 https://github.com/frs0n/placard/blob/7f470dd0242f9d69ea5ad17e521566487706c891/placard/NeoSpringView.swift

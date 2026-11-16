@@ -68,6 +68,30 @@ private enum BingGallery {
 }
 
 struct WallpaperGalleryView: View {
+    private enum Source: String, CaseIterable { case bing = "Bing 每日精选", commons = "Commons 主题找图" }
+    let use: (Data) -> Void
+    @State private var source: Source = .bing
+
+    var body: some View {
+        Group {
+            switch source {
+            case .bing: BingWallpaperGalleryView(use: use)
+            case .commons: CommonsWallpaperGalleryView(use: use)
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            Picker("图库来源", selection: $source) {
+                ForEach(Source.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .padding(12)
+            .background(.background)
+        }
+        .navigationTitle("图库")
+    }
+}
+
+private struct BingWallpaperGalleryView: View {
     @EnvironmentObject private var model: WorkshopModel
     let use: (Data) -> Void
     @State private var images: [BingWallpaper] = []
@@ -92,7 +116,7 @@ struct WallpaperGalleryView: View {
                     ForEach(images) { item in
                         Button { selection = item } label: {
                             VStack(alignment: .leading, spacing: 6) {
-                                BingImage(url: item.imageURL(size: "640x360"), mode: .fill)
+                                GalleryImage(url: item.imageURL(size: "640x360"), mode: .fill)
                                     .aspectRatio(16 / 9, contentMode: .fit)
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                                 Text(item.name).font(.subheadline).lineLimit(2)
@@ -176,7 +200,7 @@ private struct BingWallpaperDetail: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    BingImage(url: item.imageURL(), mode: .fit).aspectRatio(16 / 9, contentMode: .fit)
+                    GalleryImage(url: item.imageURL(), mode: .fit).aspectRatio(16 / 9, contentMode: .fit)
                     Text(item.name).font(.headline)
                     if let credit = item.copyright { Text(credit).font(.caption).foregroundStyle(.secondary) }
                     Button(downloading ? "正在下载…" : "用作壁纸") { download() }
@@ -202,7 +226,7 @@ private struct BingWallpaperDetail: View {
     }
 }
 
-private struct BingImage: View {
+struct GalleryImage: View {
     let url: URL?
     let mode: ContentMode
 

@@ -13,7 +13,7 @@
 
 ## 下载与安装
 
-1. 打开 [GitHub Actions · Build CarVista IPA](https://github.com/zhixinsky/car/actions/workflows/ios-diagnostics.yml)。
+1. 打开 [GitHub Actions · Build CarVista IPA](https://github.com/zhixinsky/CarVista/actions/workflows/ios-diagnostics.yml)。
 2. 选择一次成功的构建，在 **Artifacts** 下载 **CarVista-resign**，解压得到 IPA。仓库维护者也可以手动运行 **Run workflow** 构建。
 3. 使用支持有效 **App Group** 的签名方式重新签名并安装。选图、裁剪和本地生成可以离线使用，读取和替换 CarPlay 缓存需要相应的签名与访问条件。
 
