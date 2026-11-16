@@ -5,7 +5,7 @@ import PhotosUI
 struct ComposeWallpaperView: View {
     @EnvironmentObject var model: WorkshopModel
     @State private var photos: [MakerPhoto] = []
-    @State private var selection: [PhotosPickerItem] = []
+    @State private var selection: PhotosPickerItem?
     @State private var current = 0
     @State private var loading = false
     @State private var adjusting = false
@@ -42,7 +42,7 @@ struct ComposeWallpaperView: View {
                         Text("制作并替换 CarPlay 壁纸").foregroundStyle(.secondary)
                     }
                 }
-                step("01", "选择照片", "一次最多选 6 张。点缩略图切换，默认不需要调整。")
+                step("01", "选择照片", "从相册选择一张照片，可在「调整」中裁剪。")
                 VStack(spacing: 14) {
                     Group {
                         if let preview { Image(uiImage: preview).resizable().scaledToFit() }
@@ -65,12 +65,12 @@ struct ComposeWallpaperView: View {
                         }
                     }
                     HStack {
-                        Text("已选 \(photos.count) / 6 张").font(.subheadline.bold())
+                        Text("已选 \(photos.count) 张").font(.subheadline.bold())
                         Spacer()
                         Text("输出 \(outputLabel)").font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("maker.output")
                     }
                     HStack(spacing: 10) {
-                        PhotosPicker(selection: $selection, maxSelectionCount: 6, selectionBehavior: .ordered, matching: .images) {
+                        PhotosPicker(selection: $selection, matching: .images) {
                             Label(photos.isEmpty ? "选择照片" : "更换照片", systemImage: "photo.badge.plus").frame(maxWidth: .infinity)
                         }.buttonStyle(.borderedProminent).disabled(locked).accessibilityIdentifier("maker.select")
                         Button("调整") { adjusting = true }.buttonStyle(.bordered).disabled(photo == nil || locked)
@@ -151,23 +151,27 @@ struct ComposeWallpaperView: View {
                 let incoming = try await Task.detached {
                     try MakerDraft.importPhoto(data: Data(contentsOf: wallpaper.originalURL()))
                 }.value
-                var updated = photos
-                let old = photo
-                if old == nil { updated.append(incoming) } else { updated[current] = incoming }
-                do {
-                    try MakerDraft.save(updated)
-                } catch {
-                    try? FileManager.default.removeItem(at: incoming.url)
-                    throw error
-                }
-                photos = updated
-                if let old {
-                    generated[old.id] = nil
-                    try? FileManager.default.removeItem(at: old.url)
-                }
+                try replaceCurrent(with: incoming)
             } catch {
                 problem = "导入内置壁纸失败：\(error.localizedDescription)"
             }
+        }
+    }
+
+    private func replaceCurrent(with incoming: MakerPhoto) throws {
+        var updated = photos
+        let old = photo
+        if old == nil { updated.append(incoming) } else { updated[current] = incoming }
+        do {
+            try MakerDraft.save(updated)
+        } catch {
+            try? FileManager.default.removeItem(at: incoming.url)
+            throw error
+        }
+        photos = updated
+        if let old {
+            generated[old.id] = nil
+            try? FileManager.default.removeItem(at: old.url)
         }
     }
 
@@ -214,26 +218,22 @@ struct ComposeWallpaperView: View {
         generated = [:]; persist(); try? FileManager.default.removeItem(at: old.url)
     }
     private func importSelection() async {
-        guard !selection.isEmpty else { return }
-        loading = true; problem = nil
-        var incoming: [MakerPhoto] = []
+        guard let item = selection, !locked else { return }
+        loading = true
+        problem = nil
+        defer { loading = false; selection = nil }
         do {
-            for item in selection {
-                guard let data = try await item.loadTransferable(type: Data.self) else { throw CocoaError(.fileReadCorruptFile) }
-                try Task.checkCancellation()
-                let imported = try await Task.detached(priority: .userInitiated) { try MakerDraft.importPhoto(data: data) }.value
-                incoming.append(imported)
-            }
+            guard let data = try await item.loadTransferable(type: Data.self) else { throw CocoaError(.fileReadCorruptFile) }
             try Task.checkCancellation()
-            let old = photos
-            try MakerDraft.save(incoming)
-            photos = incoming; current = 0; generated = [:]
-            for item in old { try? FileManager.default.removeItem(at: item.url) }
+            let incoming = try await Task.detached(priority: .userInitiated) { try MakerDraft.importPhoto(data: data) }.value
+            if Task.isCancelled {
+                try? FileManager.default.removeItem(at: incoming.url)
+                return
+            }
+            try replaceCurrent(with: incoming)
         } catch {
-            for item in incoming { try? FileManager.default.removeItem(at: item.url) }
             if !(error is CancellationError) { problem = "导入失败：\(error.localizedDescription)" }
         }
-        loading = false
     }
     private func loadSourcePixels() async {
         guard let url = photo?.url else { sourcePixels = nil; return }
