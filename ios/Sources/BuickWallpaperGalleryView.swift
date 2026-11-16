@@ -27,11 +27,11 @@ struct BuickWallpaperGalleryView: View {
             VStack(alignment: .leading, spacing: 14) {
                 Label("别克大连屏用户请自行裁剪尺寸", systemImage: "crop")
                     .font(.subheadline).foregroundStyle(.secondary)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 155), spacing: 12)], spacing: 16) {
+                LazyVStack(alignment: .leading, spacing: 16) {
                     ForEach((1...15).map { Wallpaper(id: $0) }) { wallpaper in
                         Button { error = nil; selection = wallpaper } label: {
                             VStack(alignment: .leading, spacing: 6) {
-                                thumbnail(wallpaper).frame(height: 64)
+                                thumbnail(wallpaper)
                                 Text(wallpaper.name).font(.subheadline)
                             }.frame(maxWidth: .infinity, alignment: .leading)
                         }.buttonStyle(.plain)
