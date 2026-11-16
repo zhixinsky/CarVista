@@ -2,6 +2,19 @@
 import SwiftUI
 
 struct WallpaperAdjustmentView: View {
+    private enum Ratio: String, CaseIterable {
+        case free = "自由", wide = "16:9", portrait = "3:4", buick = "3.65:1（别克）"
+
+        var units: (width: Int, height: Int)? {
+            switch self {
+            case .free: return nil
+            case .wide: return (16, 9)
+            case .portrait: return (3, 4)
+            case .buick: return (73, 20)
+            }
+        }
+    }
+
     private enum Edge: String, CaseIterable {
         case left = "左边", right = "右边", top = "上边", bottom = "下边"
         var vertical: Bool { self == .left || self == .right }
@@ -28,6 +41,8 @@ struct WallpaperAdjustmentView: View {
     @State private var center = CGPoint(x: 0.5, y: 0.5)
     @State private var panStart: CGPoint?
     @State private var panning = false
+    @State private var ratio: Ratio = .free
+    @State private var frameDragStart: WallpaperPixelCrop?
 
     var body: some View {
         NavigationStack {
@@ -58,7 +73,7 @@ struct WallpaperAdjustmentView: View {
                         triangle(-1)
                         triangle(1)
                     }
-                    Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素 · \(panning ? "拖动查看大图" : "拖动边线，三角微调 1 像素")")
+                    Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素 · \(panning ? "拖动查看大图" : ratio == .free ? "拖动边线，三角微调 1 像素" : "拖动亮色区域移动裁剪框")")
                         .font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
             }
@@ -68,7 +83,20 @@ struct WallpaperAdjustmentView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItemGroup(placement: .confirmationAction) {
-                    Button("还原") { crop = .full(pixels); zoom = 1 }.disabled(crop == nil)
+                    Menu {
+                        ForEach(Ratio.allCases, id: \.self) { option in
+                            Button {
+                                selectRatio(option)
+                            } label: {
+                                if ratio == option { Label(option.rawValue, systemImage: "checkmark") }
+                                else { Text(option.rawValue) }
+                            }
+                            .disabled(option.units.map { Int(pixels.width) < $0.width || Int(pixels.height) < $0.height } ?? false)
+                        }
+                    } label: {
+                        Label(ratio == .free ? "比例" : ratio.rawValue, systemImage: "aspectratio")
+                    }.disabled(crop == nil)
+                    Button("还原") { ratio = .free; crop = .full(pixels); zoom = 1 }.disabled(crop == nil)
                     Button("确定") {
                         guard let crop else { return }
                         save(crop)
@@ -101,6 +129,28 @@ struct WallpaperAdjustmentView: View {
                 }
             }
         }.tint(CanvasTheme.accent)
+    }
+
+    private func selectRatio(_ option: Ratio) {
+        guard let current = crop else { return }
+        guard let units = option.units else { ratio = .free; return }
+        let scale = min(Int(pixels.width) / units.width, Int(pixels.height) / units.height)
+        guard scale > 0 else { return }
+        let width = units.width * scale
+        let height = units.height * scale
+        let left = min(Int(pixels.width) - width, max(0, Int((current.rect.midX - CGFloat(width) / 2).rounded())))
+        let top = min(Int(pixels.height) - height, max(0, Int((current.rect.midY - CGFloat(height) / 2).rounded())))
+        crop = WallpaperPixelCrop(left: left, top: top, right: left + width, bottom: top + height)
+        ratio = option
+        zoom = 1
+        panning = false
+    }
+
+    private func translate(_ original: WallpaperPixelCrop, x: Int, y: Int) {
+        let dx = min(Int(pixels.width) - original.right, max(-original.left, x))
+        let dy = min(Int(pixels.height) - original.bottom, max(-original.top, y))
+        crop = WallpaperPixelCrop(left: original.left + dx, top: original.top + dy,
+                                  right: original.right + dx, bottom: original.bottom + dy)
     }
 
     private func viewport(_ image: UIImage, crop: WallpaperPixelCrop, viewportSize: CGSize) -> some View {
@@ -157,33 +207,48 @@ struct WallpaperAdjustmentView: View {
                 path.addRect(CGRect(origin: .zero, size: size))
                 path.addRect(rect)
             }.fill(.black.opacity(0.65), style: FillStyle(eoFill: true)).allowsHitTesting(false)
-            ForEach(Edge.allCases, id: \.self) { edge in
-                let scale = edge.vertical ? xScale : yScale
-                let limit = edge.vertical ? size.width : size.height
-                let position = CGFloat(crop[keyPath: edge.coordinate]) * scale
-                let hitInset = min(12, limit / 2)
-                let hitCenter = min(max(position, hitInset), limit - hitInset)
+            if ratio != .free {
                 Rectangle()
-                    .fill(edge == selected ? Color.yellow : .white)
-                    .frame(width: edge.vertical ? 2 : size.width, height: edge.vertical ? size.height : 2)
-                    .position(x: edge.vertical ? position : size.width / 2, y: edge.vertical ? size.height / 2 : position)
-                    .allowsHitTesting(false)
-                Color.clear
-                    .frame(width: edge.vertical ? 24 : size.width, height: edge.vertical ? size.height : 24)
+                    .strokeBorder(.yellow, lineWidth: 2)
+                    .background(Color.clear)
+                    .frame(width: rect.width, height: rect.height)
                     .contentShape(Rectangle())
-                    .position(x: edge.vertical ? hitCenter : size.width / 2, y: edge.vertical ? size.height / 2 : hitCenter)
+                    .position(x: rect.midX, y: rect.midY)
                     .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named("crop")).onChanged { value in
-                        guard scale > 0 else { return }
-                        if dragStart == nil {
-                            selected = edge
-                            dragStart = self.crop?[keyPath: edge.coordinate]
-                        }
-                        guard selected == edge, let dragStart else { return }
-                        let delta = edge.vertical ? value.translation.width : value.translation.height
-                        move(edge, to: dragStart + Int((delta / scale).rounded()))
-                    }.onEnded { _ in dragStart = nil })
-                    .onTapGesture { selected = edge }
-                    .accessibilityHidden(true)
+                        if frameDragStart == nil { frameDragStart = self.crop }
+                        guard let start = frameDragStart else { return }
+                        translate(start, x: Int((value.translation.width / xScale).rounded()),
+                                  y: Int((value.translation.height / yScale).rounded()))
+                    }.onEnded { _ in frameDragStart = nil })
+            } else {
+                ForEach(Edge.allCases, id: \.self) { edge in
+                    let scale = edge.vertical ? xScale : yScale
+                    let limit = edge.vertical ? size.width : size.height
+                    let position = CGFloat(crop[keyPath: edge.coordinate]) * scale
+                    let hitInset = min(12, limit / 2)
+                    let hitCenter = min(max(position, hitInset), limit - hitInset)
+                    Rectangle()
+                        .fill(edge == selected ? Color.yellow : .white)
+                        .frame(width: edge.vertical ? 2 : size.width, height: edge.vertical ? size.height : 2)
+                        .position(x: edge.vertical ? position : size.width / 2, y: edge.vertical ? size.height / 2 : position)
+                        .allowsHitTesting(false)
+                    Color.clear
+                        .frame(width: edge.vertical ? 24 : size.width, height: edge.vertical ? size.height : 24)
+                        .contentShape(Rectangle())
+                        .position(x: edge.vertical ? hitCenter : size.width / 2, y: edge.vertical ? size.height / 2 : hitCenter)
+                        .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named("crop")).onChanged { value in
+                            guard scale > 0 else { return }
+                            if dragStart == nil {
+                                selected = edge
+                                dragStart = self.crop?[keyPath: edge.coordinate]
+                            }
+                            guard selected == edge, let dragStart else { return }
+                            let delta = edge.vertical ? value.translation.width : value.translation.height
+                            move(edge, to: dragStart + Int((delta / scale).rounded()))
+                        }.onEnded { _ in dragStart = nil })
+                        .onTapGesture { selected = edge }
+                        .accessibilityHidden(true)
+                }
             }
         }
         .coordinateSpace(name: "crop")
@@ -193,7 +258,8 @@ struct WallpaperAdjustmentView: View {
         let direction = selected.vertical ? (delta < 0 ? "左" : "右") : (delta < 0 ? "上" : "下")
         return Button {
             guard let crop else { return }
-            move(selected, to: crop[keyPath: selected.coordinate] + delta)
+            if ratio == .free { move(selected, to: crop[keyPath: selected.coordinate] + delta) }
+            else { translate(crop, x: selected.vertical ? delta : 0, y: selected.vertical ? 0 : delta) }
         } label: {
             Image(systemName: "triangle.fill")
                 .rotationEffect(.degrees(selected.vertical ? Double(delta) * 90 : (delta < 0 ? 0 : 180)))
@@ -201,7 +267,7 @@ struct WallpaperAdjustmentView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .accessibilityLabel("\(selected.rawValue)向\(direction)移动 1 像素")
+        .accessibilityLabel("\(ratio == .free ? selected.rawValue : "裁剪框")向\(direction)移动 1 像素")
     }
 
     private func move(_ edge: Edge, to value: Int) {
