@@ -63,7 +63,7 @@ final class NavigationTests: XCTestCase {
         capture(app, "07-Maker-Photo")
         app.buttons["maker.adjust"].tap()
         XCTAssertTrue(app.navigationBars["自由裁剪"].waitForExistence(timeout: 5))
-        app.buttons["逐像素微调"].tap()
+        app.buttons["crop.fineControls"].tap()
         let move = app.buttons["左边向右移动 1 像素"]
         XCTAssertTrue(move.waitForExistence(timeout: 10))
         move.tap()

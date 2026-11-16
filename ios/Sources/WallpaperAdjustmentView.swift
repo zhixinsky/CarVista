@@ -59,7 +59,13 @@ struct WallpaperAdjustmentView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 8) {
+            VStack(spacing: 4) {
+                if let crop {
+                    Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素")
+                        .font(.subheadline.weight(.semibold)).monospacedDigit()
+                        .frame(maxWidth: .infinity)
+                        .accessibilityLabel("裁剪尺寸 \(Int(crop.rect.width)) 乘 \(Int(crop.rect.height)) 像素")
+                }
                 GeometryReader { geometry in
                     if let preview, let crop {
                         viewport(preview, crop: crop, viewportSize: geometry.size)
@@ -69,7 +75,7 @@ struct WallpaperAdjustmentView: View {
                         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
-                if let crop {
+                if crop != nil {
                     if let ratioNotice {
                         Label(ratioNotice, systemImage: "info.circle")
                             .font(.caption).foregroundStyle(.secondary)
@@ -92,39 +98,40 @@ struct WallpaperAdjustmentView: View {
                         Slider(value: $zoom, in: 1...6).accessibilityLabel("预览缩放")
                         Button("全图") { zoom = 1 }.disabled(zoom == 1)
                     }.font(.subheadline)
-                    if showsFineControls {
                     HStack(spacing: 6) {
-                        Picker("微调边线", selection: Binding(get: { selected }, set: { edge in
-                            selected = edge
-                            if zoom > 1 { focusSelectedEdge() }
-                        })) {
-                            ForEach(Edge.allCases, id: \.self) { edge in Text(edge.rawValue).tag(edge) }
-                        }.pickerStyle(.segmented)
-                        triangle(-1)
-                        triangle(1)
-                        if zoom > 1 {
-                            Button { withAnimation(.easeInOut(duration: 0.2)) { focusSelectedEdge() } } label: {
-                                Label("定位边线", systemImage: "scope").labelStyle(.iconOnly)
-                                    .frame(width: 44, height: 44)
-                            }.buttonStyle(.borderless).accessibilityLabel("定位选中边线")
+                        if showsFineControls {
+                            Picker("微调边线", selection: Binding(get: { selected }, set: { edge in
+                                selected = edge
+                                if zoom > 1 { focusSelectedEdge() }
+                            })) {
+                                ForEach(Edge.allCases, id: \.self) { edge in Text(edge.rawValue).tag(edge) }
+                            }.pickerStyle(.segmented)
+                            triangle(-1)
+                            triangle(1)
+                            if zoom > 1 {
+                                Button { withAnimation(.easeInOut(duration: 0.2)) { focusSelectedEdge() } } label: {
+                                    Label("定位边线", systemImage: "scope").labelStyle(.iconOnly)
+                                        .frame(width: 44, height: 44)
+                                }.buttonStyle(.borderless).accessibilityLabel("定位选中边线")
+                            }
+                        } else {
+                            Text(gestureHint).font(.caption).foregroundStyle(.secondary)
+                            Spacer(minLength: 0)
                         }
-                    }
-                    }
-                    HStack {
-                        Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素 · \(gestureHint)")
-                            .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                        Spacer()
                         Button { showsFineControls.toggle() } label: {
-                            Label(showsFineControls ? "收起微调" : "逐像素微调", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+                            Label("微调", systemImage: showsFineControls ? "chevron.right" : "arrow.up.and.down.and.arrow.left.and.right")
                                 .font(.subheadline.weight(.semibold))
                                 .frame(minHeight: 34)
                         }
                         .buttonStyle(.borderedProminent)
                         .fixedSize(horizontal: true, vertical: false)
-                    }
+                        .accessibilityIdentifier("crop.fineControls")
+                        .accessibilityValue(showsFineControls ? "已展开" : "已收起")
+                    }.frame(minHeight: 44)
                 }
             }
-            .padding(12)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
             .overlay(alignment: .topTrailing) {
                 if showsRatios { ratioOverlay }
             }
