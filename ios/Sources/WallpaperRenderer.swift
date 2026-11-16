@@ -48,12 +48,40 @@ enum WallpaperRenderer {
             guard original.size == pixels, let result = original.cgImage?.cropping(to: crop.rect) else {
                 throw CocoaError(.fileReadCorruptFile)
             }
-            return UIImage(cgImage: result)
+            return try colorCorrect(UIImage(cgImage: result), adjustment: adjustment.color)
         }
         let pixels = preset.preservesSourceSize ? try pixelSize(url) : size
         let maximum = Int(ceil(max(pixels.width, pixels.height) * (preset.crops ? max(1, min(4, adjustment.zoom)) : 1)))
         let image = try load(url, maximum: maximum)
-        return try render(image: image, preset: preset, size: preset.preservesSourceSize ? image.size : size, adjustment: adjustment)
+        let rendered = try render(image: image, preset: preset, size: preset.preservesSourceSize ? image.size : size, adjustment: adjustment)
+        return try colorCorrect(rendered, adjustment: adjustment.color)
+    }
+
+    static func colorCorrect(_ image: UIImage, adjustment: WallpaperColorAdjustment?) throws -> UIImage {
+        guard let adjustment, adjustment != .init() else { return image }
+        guard let cg = image.cgImage else { throw CocoaError(.fileWriteUnknown) }
+        let input = CIImage(cgImage: cg)
+        var output = input.applyingFilter("CIColorControls", parameters: [
+            kCIInputBrightnessKey: adjustment.brightness,
+            kCIInputContrastKey: adjustment.contrast,
+            kCIInputSaturationKey: adjustment.saturation
+        ])
+        if let mask = adjustment.mask, mask.opacity > 0 {
+            let opacity = min(0.30, mask.opacity)
+            let gray = min(1, max(0, mask.gray))
+            let linearGray = gray <= 0.04045 ? gray / 12.92 : pow((gray + 0.055) / 1.055, 2.4)
+            let gain = CGFloat(1 / (1 - opacity))
+            let bias = CGFloat(-opacity * linearGray / (1 - opacity))
+            // Invert the estimated uniform overlay in Core Image's linear working space.
+            output = output.applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": CIVector(x: gain, y: 0, z: 0, w: 0),
+                "inputGVector": CIVector(x: 0, y: gain, z: 0, w: 0),
+                "inputBVector": CIVector(x: 0, y: 0, z: gain, w: 0),
+                "inputBiasVector": CIVector(x: bias, y: bias, z: bias, w: 0)
+            ])
+        }
+        guard let result = context.createCGImage(output, from: input.extent) else { throw CocoaError(.fileWriteUnknown) }
+        return UIImage(cgImage: result, scale: image.scale, orientation: image.imageOrientation)
     }
     static func render(image: UIImage, preset: WallpaperPreset, size: CGSize, adjustment: WallpaperAdjustment = .init()) throws -> UIImage {
         let source = transformed(image, adjustment: adjustment)

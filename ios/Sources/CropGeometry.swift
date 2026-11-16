@@ -39,12 +39,25 @@ enum WallpaperPreset: String, CaseIterable, Codable, Identifiable {
 
 struct WallpaperAdjustment: Codable, Equatable {
     var pixelCrop: WallpaperPixelCrop?
+    var color: WallpaperColorAdjustment?
     var turns = 0
     var flipX = false
     var flipY = false
     var zoom = 1.0
     var x = 0.5
     var y = 0.5
+}
+
+struct WallpaperColorAdjustment: Codable, Equatable {
+    var brightness = 0.0
+    var contrast = 1.0
+    var saturation = 1.0
+    var mask: WallpaperMaskCompensation?
+}
+
+struct WallpaperMaskCompensation: Codable, Equatable {
+    var opacity = 0.08
+    var gray = 0.5
 }
 
 struct WallpaperPixelCrop: Codable, Equatable {

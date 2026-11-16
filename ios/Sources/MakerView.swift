@@ -13,6 +13,7 @@ struct ComposeWallpaperView: View {
     @State private var current = 0
     @State private var loading = false
     @State private var adjusting = false
+    @State private var colorEditing = false
     @State private var cropOrientation = CropOrientationSession()
     @State private var applying = false
     @State private var problem: String?
@@ -94,6 +95,9 @@ struct ComposeWallpaperView: View {
                     }
                     if loading { ProgressView("正在导入照片…") }
                     if photo != nil {
+                        Button { colorEditing = true } label: {
+                            Label("整体校色", systemImage: "slider.horizontal.3")
+                        }.buttonStyle(.bordered).disabled(locked)
                         Button { prepareCurrentWallpaper() } label: {
                             Label("应用到 CarPlay", systemImage: "car.side.fill").frame(maxWidth: .infinity)
                         }.buttonStyle(.borderedProminent).disabled(locked)
@@ -167,8 +171,20 @@ struct ComposeWallpaperView: View {
             .fullScreenCover(isPresented: $adjusting, onDismiss: { cropOrientation.restore() }) {
                 if let photo { WallpaperAdjustmentView(photo: photo) { crop in
                     guard let index = photos.firstIndex(where: { $0.id == photo.id }) else { return }
-                    photos[index].adjustment = WallpaperAdjustment(pixelCrop: crop); generated = [:]; persist()
+                    photos[index].adjustment = WallpaperAdjustment(pixelCrop: crop, color: photos[index].adjustment.color)
+                    generated[photo.id] = nil
+                    persist()
                 }.modifier(CropLandscapeLayout(session: cropOrientation)) }
+            }
+            .sheet(isPresented: $colorEditing) {
+                if let photo {
+                    WallpaperColorView(photo: photo) { color in
+                        guard let index = photos.firstIndex(where: { $0.id == photo.id }) else { return }
+                        photos[index].adjustment.color = color == .init() ? nil : color
+                        generated[photo.id] = nil
+                        persist()
+                    }
+                }
             }
             .sheet(isPresented: $applying) {
                 if let photo, let entries = generated[photo.id] { NavigationStack { ApplyWallpaperView(entries: entries) } }
