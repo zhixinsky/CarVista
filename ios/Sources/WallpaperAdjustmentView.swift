@@ -42,6 +42,7 @@ struct WallpaperAdjustmentView: View {
     @State private var panStart: CGPoint?
     @State private var panning = false
     @State private var ratio: Ratio = .free
+    @State private var showsRatios = false
     @State private var frameDragStart: WallpaperPixelCrop?
 
     var body: some View {
@@ -78,25 +79,18 @@ struct WallpaperAdjustmentView: View {
                 }
             }
             .padding(12)
+            .overlay(alignment: .topTrailing) {
+                if showsRatios { ratioOverlay }
+            }
             .navigationTitle("自由裁剪")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItemGroup(placement: .confirmationAction) {
-                    Menu {
-                        ForEach(Ratio.allCases, id: \.self) { option in
-                            Button {
-                                selectRatio(option)
-                            } label: {
-                                if ratio == option { Label(option.rawValue, systemImage: "checkmark") }
-                                else { Text(option.rawValue) }
-                            }
-                            .disabled(option.units.map { Int(pixels.width) < $0.width || Int(pixels.height) < $0.height } ?? false)
-                        }
-                    } label: {
+                    Button { showsRatios.toggle() } label: {
                         Label(ratio == .free ? "比例" : ratio.rawValue, systemImage: "aspectratio")
-                    }.disabled(crop == nil)
-                    Button("还原") { ratio = .free; crop = .full(pixels); zoom = 1 }.disabled(crop == nil)
+                    }.disabled(crop == nil).accessibilityIdentifier("crop.ratio")
+                    Button("还原") { showsRatios = false; ratio = .free; crop = .full(pixels); zoom = 1 }.disabled(crop == nil)
                     Button("确定") {
                         guard let crop else { return }
                         save(crop)
@@ -129,6 +123,42 @@ struct WallpaperAdjustmentView: View {
                 }
             }
         }.tint(CanvasTheme.accent)
+    }
+
+    private var ratioOverlay: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.opacity(0.12)
+                .contentShape(Rectangle())
+                .onTapGesture { showsRatios = false }
+                .accessibilityHidden(true)
+            VStack(spacing: 0) {
+                ForEach(Ratio.allCases, id: \.self) { option in
+                    Button {
+                        selectRatio(option)
+                        showsRatios = false
+                    } label: {
+                        HStack {
+                            Text(option.rawValue)
+                            Spacer()
+                            if ratio == option { Image(systemName: "checkmark").accessibilityHidden(true) }
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(ratio == option ? .isSelected : [])
+                    .disabled(option.units.map { Int(pixels.width) < $0.width || Int(pixels.height) < $0.height } ?? false)
+                    if option != Ratio.allCases.last { Divider() }
+                }
+            }
+            .frame(width: 200)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .shadow(radius: 8)
+            .padding(8)
+            .accessibilityAction(.escape) { showsRatios = false }
+        }
     }
 
     private func selectRatio(_ option: Ratio) {
