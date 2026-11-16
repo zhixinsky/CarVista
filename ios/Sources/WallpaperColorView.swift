@@ -19,40 +19,63 @@ struct WallpaperColorView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+            VStack(spacing: 0) {
+                Group {
                     if let image = showOriginal ? original : (corrected ?? original) {
                         Image(uiImage: image).resizable().scaledToFit()
-                            .frame(maxWidth: .infinity).clipShape(RoundedRectangle(cornerRadius: 12))
+                            .frame(maxWidth: .infinity, maxHeight: 210)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
                     } else if problem == nil {
                         ProgressView("正在准备预览…")
                     }
+                }.padding(.horizontal, 20).padding(.vertical, 8)
+                ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
                     Toggle("查看原色", isOn: $showOriginal).disabled(original == nil)
                     Toggle("CarPlay 蒙版补偿", isOn: Binding(
                         get: { adjustment.mask != nil },
                         set: { adjustment.mask = $0 ? WallpaperMaskCompensation() : nil; showOriginal = false }
                     )).disabled(original == nil)
                     if let mask = adjustment.mask {
-                        slider("补偿强度", value: Binding(
+                        Text("黑色蒙版 #000000").font(.subheadline).foregroundStyle(.secondary)
+                        slider("蒙版透明度", value: Binding(
                             get: { adjustment.mask?.opacity ?? mask.opacity },
                             set: { adjustment.mask?.opacity = $0 }
-                        ), range: 0...0.30, neutral: 0)
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack { Text("假设蒙版颜色"); Spacer(); Text("黑 → 白").font(.caption) }
-                            Slider(value: Binding(
-                                get: { adjustment.mask?.gray ?? mask.gray },
-                                set: { adjustment.mask?.gray = $0 }
-                            ), in: 0...1, step: 0.05).accessibilityLabel("假设蒙版颜色，从黑到白")
+                        ), range: 0...0.50, neutral: 0, format: "%.0f%%")
+                        slider("补偿强度", value: Binding(
+                            get: { adjustment.mask?.strength ?? 1 },
+                            set: { adjustment.mask?.strength = $0 }
+                        ), range: 0...1.50, neutral: 0, format: "%.0f%%")
+                        Toggle("水平渐变", isOn: Binding(
+                            get: { adjustment.mask?.horizontalGradient ?? false },
+                            set: { adjustment.mask?.horizontalGradient = $0 }
+                        ))
+                        if mask.horizontalGradient == true {
+                            Text("默认从左到右：24% → 20% → 15%。")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
-                        Text("默认从 8% 中灰试起。预览显示补偿后的输出图，实际以车机接缝为准。")
+                        Toggle("高光保护", isOn: Binding(
+                            get: { adjustment.mask?.protectHighlights ?? true },
+                            set: { adjustment.mask?.protectHighlights = $0 }
+                        ))
+                        Text("20% 蒙版在 100% 强度下对应 1.25 倍 RGB 增益，高光保护会柔和压缩亮部。")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     slider("亮度", value: $adjustment.brightness, range: -0.15...0.15, neutral: 0)
+                    slider("曝光", value: manual(\.exposure, defaultValue: 0), range: -1...1, neutral: 0,
+                           scale: 1, format: "%+.2f EV")
                     slider("对比度", value: $adjustment.contrast, range: 0.75...1.35, neutral: 1)
                     slider("饱和度", value: $adjustment.saturation, range: 0.5...1.5, neutral: 1)
+                    slider("高光", value: manual(\.highlights, defaultValue: 0), range: -1...0, neutral: 0)
+                    slider("阴影", value: manual(\.shadows, defaultValue: 0), range: -1...1, neutral: 0)
+                    slider("色温", value: manual(\.temperature, defaultValue: 0), range: -2000...2000, neutral: 0,
+                           step: 50, scale: 1, format: "%+.0f K")
+                    slider("Gamma", value: manual(\.gamma, defaultValue: 1), range: 0.65...1.5, neutral: 0,
+                           scale: 1, format: "%.2f")
                     Button("恢复原色") { adjustment = .init(); showOriginal = false }
                     if let problem { Text(problem).font(.footnote).foregroundStyle(.red) }
                 }.padding(20).frame(maxWidth: 600).frame(maxWidth: .infinity)
+                }
             }
             .navigationTitle("整体校色")
             .navigationBarTitleDisplayMode(.inline)
@@ -72,14 +95,21 @@ struct WallpaperColorView: View {
         let color: WallpaperColorAdjustment
     }
 
-    private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, neutral: Double) -> some View {
+    private func manual(_ field: WritableKeyPath<WallpaperColorAdjustment, Double?>, defaultValue: Double) -> Binding<Double> {
+        Binding(get: { adjustment[keyPath: field] ?? defaultValue }, set: {
+            adjustment[keyPath: field] = $0 == defaultValue ? nil : $0
+        })
+    }
+
+    private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, neutral: Double,
+                        step: Double = 0.01, scale: Double = 100, format: String = "%+.0f") -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(title)
                 Spacer()
-                Text(String(format: "%+.0f", (value.wrappedValue - neutral) * 100)).monospacedDigit()
+                Text(String(format: format, (value.wrappedValue - neutral) * scale)).monospacedDigit()
             }
-            Slider(value: value, in: range, step: 0.01).accessibilityLabel(title)
+            Slider(value: value, in: range, step: step).accessibilityLabel(title)
         }.disabled(original == nil)
     }
 

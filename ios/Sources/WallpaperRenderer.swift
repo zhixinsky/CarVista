@@ -5,6 +5,29 @@ import CoreImage
 
 enum WallpaperRenderer {
     private static let context = CIContext(options: [.cacheIntermediates: false])
+    private static let maskKernel = CIKernel(source: """
+        kernel vec4 compensate(sampler image, float width, float opacity, float strength,
+                               float gradient, float protect) {
+            vec4 pixel = unpremultiply(sample(image, samplerCoord(image)));
+            float x = clamp((destCoord().x - 0.5) / max(width - 1.0, 1.0), 0.0, 1.0);
+            float offset = x < 0.5 ? mix(0.04, 0.0, x * 2.0) : mix(0.0, -0.05, (x - 0.5) * 2.0);
+            float alpha = clamp(opacity + gradient * offset * min(1.0, opacity * 5.0), 0.0, 0.5);
+            float gain = mix(1.0, 1.0 / (1.0 - alpha), strength);
+            vec3 rgb = pixel.rgb * gain;
+            if (protect > 0.5) {
+                float peak = max(max(pixel.r, pixel.g), pixel.b);
+                float knee = 0.72;
+                float start = knee / gain;
+                if (peak > start) {
+                    float t = clamp((peak - start) / (1.0 - start), 0.0, 1.0);
+                    float slope = gain * (1.0 - start) / (1.0 - knee);
+                    float safePeak = knee + (1.0 - knee) * t * slope / (1.0 + t * (slope - 1.0));
+                    rgb = pixel.rgb * (safePeak / max(peak, 0.0001));
+                }
+            }
+            return premultiply(vec4(rgb, pixel.a));
+        }
+        """)
     static func format() -> UIGraphicsImageRendererFormat {
         let f = UIGraphicsImageRendererFormat(); f.scale = 1; f.opaque = true; f.preferredRange = .standard
         return f
@@ -61,25 +84,37 @@ enum WallpaperRenderer {
         guard let adjustment, adjustment != .init() else { return image }
         guard let cg = image.cgImage else { throw CocoaError(.fileWriteUnknown) }
         let input = CIImage(cgImage: cg)
-        var output = input.applyingFilter("CIColorControls", parameters: [
+        var output = input
+        if let mask = adjustment.mask, mask.opacity > 0, (mask.strength ?? 1) > 0 {
+            guard let corrected = maskKernel?.apply(extent: input.extent, roiCallback: { _, rect in rect }, arguments: [
+                input, input.extent.width, min(0.50, mask.opacity), min(1.50, mask.strength ?? 1),
+                mask.horizontalGradient == true ? 1.0 : 0.0, mask.protectHighlights == false ? 0.0 : 1.0
+            ]) else { throw CocoaError(.fileWriteUnknown) }
+            output = corrected
+        }
+        if let exposure = adjustment.exposure, exposure != 0 {
+            output = output.applyingFilter("CIExposureAdjust", parameters: ["inputEV": exposure])
+        }
+        if (adjustment.highlights ?? 0) != 0 || (adjustment.shadows ?? 0) != 0 {
+            output = output.applyingFilter("CIHighlightShadowAdjust", parameters: [
+                "inputHighlightAmount": 1 + (adjustment.highlights ?? 0),
+                "inputShadowAmount": adjustment.shadows ?? 0
+            ])
+        }
+        if let temperature = adjustment.temperature, temperature != 0 {
+            output = output.applyingFilter("CITemperatureAndTint", parameters: [
+                "inputNeutral": CIVector(x: 6500, y: 0),
+                "inputTargetNeutral": CIVector(x: CGFloat(6500 + temperature), y: 0)
+            ])
+        }
+        if let gamma = adjustment.gamma, gamma != 1 {
+            output = output.applyingFilter("CIGammaAdjust", parameters: ["inputPower": gamma])
+        }
+        output = output.applyingFilter("CIColorControls", parameters: [
             kCIInputBrightnessKey: adjustment.brightness,
             kCIInputContrastKey: adjustment.contrast,
             kCIInputSaturationKey: adjustment.saturation
         ])
-        if let mask = adjustment.mask, mask.opacity > 0 {
-            let opacity = min(0.30, mask.opacity)
-            let gray = min(1, max(0, mask.gray))
-            let linearGray = gray <= 0.04045 ? gray / 12.92 : pow((gray + 0.055) / 1.055, 2.4)
-            let gain = CGFloat(1 / (1 - opacity))
-            let bias = CGFloat(-opacity * linearGray / (1 - opacity))
-            // Invert the estimated uniform overlay in Core Image's linear working space.
-            output = output.applyingFilter("CIColorMatrix", parameters: [
-                "inputRVector": CIVector(x: gain, y: 0, z: 0, w: 0),
-                "inputGVector": CIVector(x: 0, y: gain, z: 0, w: 0),
-                "inputBVector": CIVector(x: 0, y: 0, z: gain, w: 0),
-                "inputBiasVector": CIVector(x: bias, y: bias, z: bias, w: 0)
-            ])
-        }
         guard let result = context.createCGImage(output, from: input.extent) else { throw CocoaError(.fileWriteUnknown) }
         return UIImage(cgImage: result, scale: image.scale, orientation: image.imageOrientation)
     }

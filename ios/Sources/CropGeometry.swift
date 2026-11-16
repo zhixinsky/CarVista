@@ -52,12 +52,19 @@ struct WallpaperColorAdjustment: Codable, Equatable {
     var brightness = 0.0
     var contrast = 1.0
     var saturation = 1.0
+    var exposure: Double?
+    var highlights: Double?
+    var shadows: Double?
+    var temperature: Double?
+    var gamma: Double?
     var mask: WallpaperMaskCompensation?
 }
 
 struct WallpaperMaskCompensation: Codable, Equatable {
-    var opacity = 0.08
-    var gray = 0.5
+    var opacity = 0.20
+    var strength: Double?
+    var horizontalGradient: Bool?
+    var protectHighlights: Bool?
 }
 
 struct WallpaperPixelCrop: Codable, Equatable {
