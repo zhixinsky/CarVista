@@ -145,7 +145,7 @@ struct CommonsWallpaperGalleryView: View {
                 Toggle("超宽原图（别克大连屏）", isOn: $ultrawide)
                     .onChange(of: ultrawide) { _, _ in load(reset: true) }
                 if ultrawide {
-                    Text("筛选宽度 ≥ 2560 像素、宽高比 ≥ 3.5:1 的原图，可导入后裁成 3.65:1。")
+                    Text("筛选宽度 ≥ 2560 像素、宽高比 ≥ 3.5:1 的原图，原图达到 3083×934 像素后可使用别克裁剪预设。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 155), spacing: 12)], spacing: 16) {

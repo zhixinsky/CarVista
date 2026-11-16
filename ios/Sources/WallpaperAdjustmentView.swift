@@ -3,14 +3,14 @@ import SwiftUI
 
 struct WallpaperAdjustmentView: View {
     private enum Ratio: String, CaseIterable {
-        case free = "自由", wide = "16:9", portrait = "3:4", buick = "3.65:1（别克）"
+        case free = "自由", wide = "16:9", portrait = "3:4", buick = "3083×815（别克）"
 
         var units: (width: Int, height: Int)? {
             switch self {
             case .free: return nil
             case .wide: return (16, 9)
             case .portrait: return (3, 4)
-            case .buick: return (73, 20)
+            case .buick: return (3083, 815)
             }
         }
     }
@@ -181,7 +181,8 @@ struct WallpaperAdjustmentView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(ratio == option ? .isSelected : [])
-                    .disabled(option.units.map { Int(pixels.width) < $0.width || Int(pixels.height) < $0.height } ?? false)
+                    .disabled(!canSelect(option))
+                    .accessibilityHint(option == .buick ? "原图至少需要 3083×934 像素，底部默认预留 119 像素" : "")
                     if option != Ratio.allCases.last { Divider() }
                 }
             }
@@ -194,15 +195,22 @@ struct WallpaperAdjustmentView: View {
         }
     }
 
+    private func canSelect(_ option: Ratio) -> Bool {
+        guard let units = option.units else { return true }
+        return Int(pixels.width) >= units.width && Int(pixels.height) >= units.height + (option == .buick ? 119 : 0)
+    }
+
     private func selectRatio(_ option: Ratio) {
-        guard !cropLocked, let current = crop else { return }
+        guard !cropLocked, let current = crop, canSelect(option) else { return }
         guard let units = option.units else { ratio = .free; return }
-        let scale = min(Int(pixels.width) / units.width, Int(pixels.height) / units.height)
+        let scale = option == .buick ? 1 : min(Int(pixels.width) / units.width, Int(pixels.height) / units.height)
         guard scale > 0 else { return }
         let width = units.width * scale
         let height = units.height * scale
-        let left = min(Int(pixels.width) - width, max(0, Int((current.rect.midX - CGFloat(width) / 2).rounded())))
-        let top = min(Int(pixels.height) - height, max(0, Int((current.rect.midY - CGFloat(height) / 2).rounded())))
+        let left = option == .buick ? Int(pixels.width) - width
+            : min(Int(pixels.width) - width, max(0, Int((current.rect.midX - CGFloat(width) / 2).rounded())))
+        let top = option == .buick ? Int(pixels.height) - height - 119
+            : min(Int(pixels.height) - height, max(0, Int((current.rect.midY - CGFloat(height) / 2).rounded())))
         crop = WallpaperPixelCrop(left: left, top: top, right: left + width, bottom: top + height)
         ratio = option
         zoom = 1
