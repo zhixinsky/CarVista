@@ -9,6 +9,7 @@ struct ComposeWallpaperView: View {
     @State private var current = 0
     @State private var loading = false
     @State private var adjusting = false
+    @State private var cropOrientation = CropOrientationSession()
     @State private var applying = false
     @State private var problem: String?
     @State private var generated: [UUID: [SavedWallpaper]] = [:]
@@ -81,7 +82,7 @@ struct ComposeWallpaperView: View {
                 }.padding(16).background(cardColor, in: RoundedRectangle(cornerRadius: 24))
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("内置壁纸").font(.headline)
+                    Text("内置壁纸（别克大连屏专用）").font(.headline)
                     Text("已裁好。点选后可直接应用当前照片。").font(.caption).foregroundStyle(.secondary)
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack {
@@ -130,11 +131,11 @@ struct ComposeWallpaperView: View {
             .task(id: selection) { await importSelection() }
             .task(id: photo?.id) { await loadSourcePixels() }
             .task(id: renderKey) { await refreshPreview() }
-            .fullScreenCover(isPresented: $adjusting) {
+            .fullScreenCover(isPresented: $adjusting, onDismiss: { cropOrientation.restore() }) {
                 if let photo { WallpaperAdjustmentView(photo: photo) { crop in
                     guard let index = photos.firstIndex(where: { $0.id == photo.id }) else { return }
                     photos[index].adjustment = WallpaperAdjustment(pixelCrop: crop); generated = [:]; persist()
-                } }
+                }.modifier(CropLandscapeLayout(session: cropOrientation)) }
             }
             .sheet(isPresented: $applying) {
                 if let photo, let entries = generated[photo.id] { NavigationStack { ApplyWallpaperView(entries: entries) } }
