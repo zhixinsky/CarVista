@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
+import UIKit
 
 struct WallpaperAdjustmentView: View {
     private enum Ratio: String, CaseIterable {
@@ -44,7 +45,7 @@ struct WallpaperAdjustmentView: View {
     @State private var ratio: Ratio = .free
     @State private var showsRatios = false
     @State private var frameDragStart: WallpaperPixelCrop?
-    @State private var pinchStart: Double?
+    @State private var twoFingerStart: CGPoint?
     @State private var showsFineControls = false
 
     var body: some View {
@@ -61,8 +62,11 @@ struct WallpaperAdjustmentView: View {
                 }
                 if let crop {
                     HStack {
-                        Button(panning ? "裁剪" : "移动大图", systemImage: panning ? "crop" : "hand.draw") { panning.toggle() }
-                            .disabled(zoom == 1)
+                        if #available(iOS 18, *) { Text("缩放") }
+                        else {
+                            Button(panning ? "裁剪" : "移动大图", systemImage: panning ? "crop" : "hand.draw") { panning.toggle() }
+                                .disabled(zoom == 1)
+                        }
                         Slider(value: $zoom, in: 1...6).accessibilityLabel("预览缩放")
                         Button("全图") { zoom = 1 }.disabled(zoom == 1)
                     }.font(.subheadline)
@@ -77,14 +81,15 @@ struct WallpaperAdjustmentView: View {
                         triangle(-1)
                         triangle(1)
                         if zoom > 1 {
-                            Button(action: focusSelectedEdge) {
-                                Image(systemName: "scope").frame(width: 44, height: 44)
-                            }.accessibilityLabel("定位选中边线")
+                            Button { withAnimation(.easeInOut(duration: 0.2)) { focusSelectedEdge() } } label: {
+                                Label("定位边线", systemImage: "scope").labelStyle(.iconOnly)
+                                    .frame(width: 44, height: 44)
+                            }.buttonStyle(.borderless).accessibilityLabel("定位选中边线")
                         }
                     }
                     }
                     HStack {
-                        Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素 · \(panning ? "拖动查看大图" : "拖动裁剪框，双指放大")")
+                        Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素 · \(gestureHint)")
                             .font(.caption).monospacedDigit().foregroundStyle(.secondary)
                         Spacer()
                         Button { showsFineControls.toggle() } label: {
@@ -142,6 +147,11 @@ struct WallpaperAdjustmentView: View {
                 }
             }
         }.tint(CanvasTheme.accent)
+    }
+
+    private var gestureHint: String {
+        if #available(iOS 18, *) { return zoom > 1 ? "双指移动大图" : "拖动裁剪框，滑杆缩放" }
+        return panning ? "拖动查看大图" : "拖动裁剪框，滑杆缩放"
     }
 
     private var ratioOverlay: some View {
@@ -202,37 +212,56 @@ struct WallpaperAdjustmentView: View {
                                   right: original.right + dx, bottom: original.bottom + dy)
     }
 
+    @ViewBuilder
     private func viewport(_ image: UIImage, crop: WallpaperPixelCrop, viewportSize: CGSize) -> some View {
         let fit = CropGeometry.fit(source: pixels, target: viewportSize).size
         let size = CGSize(width: fit.width * zoom, height: fit.height * zoom)
         let focus = zoom > 1 ? clampedCenter(center) : CGPoint(x: 0.5, y: 0.5)
-        return ZStack(alignment: .topLeading) {
-            Color(uiColor: .secondarySystemGroupedBackground)
+        let canvas = Color(uiColor: .secondarySystemGroupedBackground)
+            .frame(width: viewportSize.width, height: viewportSize.height)
+            .overlay(alignment: .topLeading) {
             if size.width > 0, size.height > 0 {
                 editor(image, crop: crop, size: size)
                     .frame(width: size.width, height: size.height)
                     .offset(x: viewportSize.width / 2 - focus.x * size.width,
                             y: viewportSize.height / 2 - focus.y * size.height)
             }
+            }
+            .overlay {
             if panning {
                 Color.clear.frame(width: viewportSize.width, height: viewportSize.height)
                     .contentShape(Rectangle()).gesture(DragGesture().onChanged { value in
-                    guard pinchStart == nil, size.width > 0, size.height > 0 else { return }
+                    guard size.width > 0, size.height > 0 else { return }
                     if panStart == nil { panStart = focus }
                     guard let start = panStart else { return }
                     center = clampedCenter(CGPoint(x: start.x - value.translation.width / size.width,
                                                    y: start.y - value.translation.height / size.height))
                 }.onEnded { _ in panStart = nil })
             }
+            }
+            .clipped()
+            .contentShape(Rectangle())
+        if #available(iOS 18, *) {
+            canvas.gesture(CropTwoFingerPan(enabled: zoom > 1) { state, translation in
+                switch state {
+                case .began:
+                    if let start = frameDragStart { self.crop = start }
+                    else if let start = dragStart { move(selected, to: start) }
+                    frameDragStart = nil
+                    dragStart = nil
+                    twoFingerStart = focus
+                case .changed:
+                    guard let start = twoFingerStart, size.width > 0, size.height > 0 else { return }
+                    center = clampedCenter(CGPoint(x: start.x - translation.x / size.width,
+                                                   y: start.y - translation.y / size.height))
+                case .ended, .cancelled, .failed:
+                    twoFingerStart = nil
+                default: break
+                }
+            })
+        } else {
+            canvas
         }
-        .frame(width: viewportSize.width, height: viewportSize.height)
-        .clipped()
-        .contentShape(Rectangle())
-        .simultaneousGesture(MagnifyGesture().onChanged { value in
-            if pinchStart == nil { pinchStart = zoom }
-            guard let pinchStart else { return }
-            zoom = min(6, max(1, pinchStart * Double(value.magnification)))
-        }.onEnded { _ in pinchStart = nil })
     }
 
     private func clampedCenter(_ point: CGPoint) -> CGPoint {
@@ -267,7 +296,7 @@ struct WallpaperAdjustmentView: View {
                     .contentShape(Rectangle())
                     .position(x: rect.midX, y: rect.midY)
                     .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named("crop")).onChanged { value in
-                        guard pinchStart == nil else { return }
+                        guard twoFingerStart == nil else { return }
                         if frameDragStart == nil { frameDragStart = self.crop }
                         guard let start = frameDragStart else { return }
                         translate(start, x: Int((value.translation.width / xScale).rounded()),
@@ -291,7 +320,7 @@ struct WallpaperAdjustmentView: View {
                         .contentShape(Rectangle())
                         .position(x: edge.vertical ? hitCenter : size.width / 2, y: edge.vertical ? size.height / 2 : hitCenter)
                         .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named("crop")).onChanged { value in
-                            guard scale > 0, pinchStart == nil else { return }
+                            guard scale > 0, twoFingerStart == nil else { return }
                             if dragStart == nil {
                                 selected = edge
                                 dragStart = self.crop?[keyPath: edge.coordinate]
@@ -335,5 +364,38 @@ struct WallpaperAdjustmentView: View {
         }
         crop[keyPath: edge.coordinate] = min(bounds.upperBound, max(bounds.lowerBound, value))
         self.crop = crop
+    }
+}
+
+@available(iOS 18, *)
+private struct CropTwoFingerPan: UIGestureRecognizerRepresentable {
+    let enabled: Bool
+    let handle: (UIGestureRecognizer.State, CGPoint) -> Void
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            true
+        }
+    }
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let recognizer = UIPanGestureRecognizer()
+        recognizer.minimumNumberOfTouches = 2
+        recognizer.maximumNumberOfTouches = 2
+        recognizer.cancelsTouchesInView = false
+        recognizer.delegate = context.coordinator
+        recognizer.isEnabled = enabled
+        return recognizer
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        recognizer.isEnabled = enabled
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        handle(recognizer.state, context.converter.localTranslation ?? .zero)
     }
 }
