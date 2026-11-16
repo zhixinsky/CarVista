@@ -60,12 +60,6 @@ struct WallpaperAdjustmentView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 4) {
-                if let crop {
-                    Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素")
-                        .font(.subheadline.weight(.semibold)).monospacedDigit()
-                        .frame(maxWidth: .infinity)
-                        .accessibilityLabel("裁剪尺寸 \(Int(crop.rect.width)) 乘 \(Int(crop.rect.height)) 像素")
-                }
                 GeometryReader { geometry in
                     if let preview, let crop {
                         viewport(preview, crop: crop, viewportSize: geometry.size)
@@ -75,6 +69,8 @@ struct WallpaperAdjustmentView: View {
                         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
+                .background(Color(uiColor: .systemGray5), in: RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
                 if crop != nil {
                     if let ratioNotice {
                         Label(ratioNotice, systemImage: "info.circle")
@@ -135,9 +131,19 @@ struct WallpaperAdjustmentView: View {
             .overlay(alignment: .topTrailing) {
                 if showsRatios { ratioOverlay }
             }
-            .navigationTitle("自由裁剪")
+            .navigationTitle("裁剪")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 8) {
+                        Text("裁剪").font(.headline)
+                        if let crop {
+                            Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素")
+                                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                                .accessibilityLabel("裁剪尺寸 \(Int(crop.rect.width)) 乘 \(Int(crop.rect.height)) 像素")
+                        }
+                    }.lineLimit(1).minimumScaleFactor(0.7)
+                }
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItemGroup(placement: .confirmationAction) {
                     Button { showsRatios.toggle() } label: {
@@ -256,7 +262,7 @@ struct WallpaperAdjustmentView: View {
         let fit = CropGeometry.fit(source: pixels, target: viewportSize).size
         let size = CGSize(width: fit.width * zoom, height: fit.height * zoom)
         let focus = zoom > 1 ? clampedCenter(center) : CGPoint(x: 0.5, y: 0.5)
-        return Color(uiColor: .secondarySystemGroupedBackground)
+        return Color.clear
             .frame(width: viewportSize.width, height: viewportSize.height)
             .overlay(alignment: .topLeading) {
                 if size.width > 0, size.height > 0 {
