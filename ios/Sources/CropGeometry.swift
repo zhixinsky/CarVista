@@ -38,12 +38,30 @@ enum WallpaperPreset: String, CaseIterable, Codable, Identifiable {
 }
 
 struct WallpaperAdjustment: Codable, Equatable {
+    var pixelCrop: WallpaperPixelCrop?
     var turns = 0
     var flipX = false
     var flipY = false
     var zoom = 1.0
     var x = 0.5
     var y = 0.5
+}
+
+struct WallpaperPixelCrop: Codable, Equatable {
+    var left: Int
+    var top: Int
+    var right: Int
+    var bottom: Int
+
+    var rect: CGRect { CGRect(x: left, y: top, width: right - left, height: bottom - top) }
+
+    static func full(_ size: CGSize) -> Self {
+        Self(left: 0, top: 0, right: Int(size.width), bottom: Int(size.height))
+    }
+
+    func fits(_ size: CGSize) -> Bool {
+        left >= 0 && top >= 0 && right > left && bottom > top && right <= Int(size.width) && bottom <= Int(size.height)
+    }
 }
 
 enum CropGeometry {

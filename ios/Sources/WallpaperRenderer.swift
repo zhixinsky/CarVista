@@ -41,6 +41,15 @@ enum WallpaperRenderer {
         }
     }
     static func render(url: URL, preset: WallpaperPreset, size: CGSize, adjustment: WallpaperAdjustment) throws -> UIImage {
+        if let crop = adjustment.pixelCrop {
+            let pixels = try pixelSize(url)
+            guard crop.fits(pixels) else { throw CocoaError(.fileReadCorruptFile) }
+            let original = try load(url, maximum: Int(max(pixels.width, pixels.height)))
+            guard original.size == pixels, let result = original.cgImage?.cropping(to: crop.rect) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            return UIImage(cgImage: result)
+        }
         let pixels = preset.preservesSourceSize ? try pixelSize(url) : size
         let maximum = Int(ceil(max(pixels.width, pixels.height) * (preset.crops ? max(1, min(4, adjustment.zoom)) : 1)))
         let image = try load(url, maximum: maximum)

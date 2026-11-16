@@ -4,9 +4,6 @@ import PhotosUI
 
 struct ComposeWallpaperView: View {
     @EnvironmentObject var model: WorkshopModel
-    @AppStorage("LMPreset") private var presetValue = WallpaperPreset.automatic.rawValue
-    @AppStorage("LMCustomWidth") private var customWidth = 1920
-    @AppStorage("LMCustomHeight") private var customHeight = 810
     @State private var photos: [MakerPhoto] = []
     @State private var selection: [PhotosPickerItem] = []
     @State private var current = 0
@@ -20,11 +17,9 @@ struct ComposeWallpaperView: View {
     @State private var previewing = false
     @State private var initialized = false
     @State private var sourcePixels: CGSize?
-    private var preset: WallpaperPreset { WallpaperPreset(rawValue: presetValue) ?? .automatic }
     private var photo: MakerPhoto? { photos.indices.contains(current) ? photos[current] : nil }
     private var outputSize: CGSize {
-        if preset == .custom { return CGSize(width: customWidth, height: customHeight) }
-        guard preset.preservesSourceSize else { return preset.size(detected: model.detectedWallpaperSize) }
+        if let crop = photo?.adjustment.pixelCrop { return crop.rect.size }
         guard let sourcePixels, sourcePixels.width > 0, sourcePixels.height > 0 else { return .zero }
         let turns = (((photo?.adjustment.turns ?? 0) % 4) + 4) % 4
         return turns % 2 == 0 ? sourcePixels : CGSize(width: sourcePixels.height, height: sourcePixels.width)
@@ -35,7 +30,7 @@ struct ComposeWallpaperView: View {
         return "\(Int(outputSize.width)) × \(Int(outputSize.height))"
     }
     private var locked: Bool { loading || model.busy }
-    private var renderKey: String { "\(photo?.id.uuidString ?? "empty")-\(String(describing: photo?.adjustment))-\(presetValue)-\(outputLabel)" }
+    private var renderKey: String { "\(photo?.id.uuidString ?? "empty")-\(String(describing: photo?.adjustment))-\(outputLabel)" }
 
     var body: some View {
         ScrollView {
@@ -133,8 +128,6 @@ struct ComposeWallpaperView: View {
         }.background(Color(uiColor: .systemGroupedBackground)).tint(CanvasTheme.accent)
             .navigationTitle("壁纸").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .onAppear { initialize() }
-            .onChange(of: presetValue) { _, _ in generated = [:] }
-            .onChange(of: outputLabel) { _, _ in generated = [:] }
             .task(id: selection) { await importSelection() }
             .task(id: photo?.id) { await loadSourcePixels() }
             .task(id: renderKey) { await refreshPreview() }
@@ -146,7 +139,7 @@ struct ComposeWallpaperView: View {
                     else { old = nil; updated.append(incoming) }
                     do {
                         try MakerDraft.save(updated)
-                        photos = updated; generated = [:]; presetValue = WallpaperPreset.original.rawValue
+                        photos = updated; generated = [:]
                         if let old { try? FileManager.default.removeItem(at: old.url) }
                     } catch {
                         try? FileManager.default.removeItem(at: incoming.url)
@@ -155,11 +148,9 @@ struct ComposeWallpaperView: View {
                 }.id(item.id)
             }
             .fullScreenCover(isPresented: $adjusting) {
-                if let photo { WallpaperAdjustmentView(photo: photo, preset: preset, outputSize: outputSize, detectedSize: model.detectedWallpaperSize, sourceSize: sourcePixels) { adjustment, selectedPreset, size in
+                if let photo { WallpaperAdjustmentView(photo: photo) { crop in
                     guard let index = photos.firstIndex(where: { $0.id == photo.id }) else { return }
-                    if selectedPreset == .custom { customWidth = Int(size.width); customHeight = Int(size.height) }
-                    presetValue = selectedPreset.rawValue
-                    photos[index].adjustment = adjustment; generated = [:]; persist()
+                    photos[index].adjustment = WallpaperAdjustment(pixelCrop: crop); generated = [:]; persist()
                 } }
             }
             .sheet(isPresented: $applying) {
@@ -177,11 +168,10 @@ struct ComposeWallpaperView: View {
     private func initialize() {
         guard !initialized else { return }; initialized = true
         photos = MakerDraft.load()
-        if presetValue == "split" { presetValue = WallpaperPreset.original.rawValue }
         #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("-MakerUITestFixture"), let data = UIImage(named: "BrandMark")?.pngData(),
            let fixture = try? MakerDraft.importPhoto(data: data) {
-            photos = [fixture]; presetValue = WallpaperPreset.wide.rawValue
+            photos = [fixture]
         }
         #endif
     }
@@ -224,11 +214,11 @@ struct ComposeWallpaperView: View {
     private func refreshPreview() async {
         guard let photo else { preview = nil; return }
         previewing = true
-        let selectedPreset = preset, size = outputSize
+        let size = outputSize
         do {
             try await Task.sleep(nanoseconds: 120_000_000)
             let result = try await Task.detached(priority: .userInitiated) {
-                try autoreleasepool { try WallpaperRenderer.render(url: photo.url, preset: selectedPreset, size: size, adjustment: photo.adjustment) }
+                try autoreleasepool { try WallpaperRenderer.render(url: photo.url, preset: .original, size: size, adjustment: photo.adjustment) }
             }.value
             try Task.checkCancellation(); preview = result; previewing = false
         } catch { if !Task.isCancelled { preview = nil; previewing = false; problem = "预览失败：\(error.localizedDescription)" } }
@@ -236,7 +226,7 @@ struct ComposeWallpaperView: View {
     private func generate() {
         problem = nil
         let snapshot = photos
-        model.generatePhotos(snapshot, preset: preset, size: outputSize) { batches in
+        model.generatePhotos(snapshot, preset: .original, size: outputSize) { batches in
             generated = Dictionary(uniqueKeysWithValues: zip(snapshot, batches).map { ($0.0.id, $0.1) })
             if batches.isEmpty { problem = model.message }
         }
