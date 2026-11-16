@@ -32,6 +32,7 @@ struct WallpaperColorView: View {
                 ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Toggle("查看原色", isOn: $showOriginal).disabled(original == nil)
+                    leftEdgeControls
                     Toggle("CarPlay 蒙版补偿", isOn: Binding(
                         get: { adjustment.mask != nil },
                         set: { adjustment.mask = $0 ? WallpaperMaskCompensation() : nil; showOriginal = false }
@@ -93,6 +94,32 @@ struct WallpaperColorView: View {
     private struct PreviewKey: Equatable {
         let ready: Bool
         let color: WallpaperColorAdjustment
+    }
+
+    private var leftEdgeControls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle("CarPlay 左侧边缘融合", isOn: Binding(
+                get: { adjustment.leftEdge != nil },
+                set: { adjustment.leftEdge = $0 ? WallpaperLeftEdgeBlend() : nil; showOriginal = false }
+            ))
+            if adjustment.leftEdge != nil {
+                slider("渐变宽度", value: edgeValue(\.width), range: 0...0.50, neutral: 0, format: "%.0f%%")
+                slider("左边缘亮度增益", value: edgeValue(\.brightness), range: -0.50...1, neutral: 0, format: "%+.0f%%")
+                slider("左边缘饱和度", value: edgeValue(\.saturation), range: -0.50...1, neutral: 0, format: "%+.0f%%")
+                slider("渐变曲线", value: edgeValue(\.curve), range: 0.75...3, neutral: 0,
+                       step: 0.05, scale: 1, format: "%.2f")
+                Text("1.00 为标准 Smoothstep。数值越大，补偿越集中在左边缘。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("恢复融合默认值") { adjustment.leftEdge = .init(); showOriginal = false }
+            }
+        }.disabled(original == nil)
+    }
+
+    private func edgeValue(_ field: WritableKeyPath<WallpaperLeftEdgeBlend, Double>) -> Binding<Double> {
+        Binding(get: { (adjustment.leftEdge ?? .init())[keyPath: field] }, set: {
+            adjustment.leftEdge?[keyPath: field] = $0
+            showOriginal = false
+        })
     }
 
     private func manual(_ field: WritableKeyPath<WallpaperColorAdjustment, Double?>, defaultValue: Double) -> Binding<Double> {

@@ -5,6 +5,20 @@ import CoreImage
 
 enum WallpaperRenderer {
     private static let context = CIContext(options: [.cacheIntermediates: false])
+    private static let leftEdgeKernel = CIKernel(source: """
+        kernel vec4 blendLeft(sampler image, float width, float range, float brightness,
+                              float saturation, float curve) {
+            vec4 source = sample(image, samplerCoord(image));
+            float x = max(0.0, (destCoord().x - 0.5) / max(width - 1.0, 1.0));
+            if (x >= range) { return source; }
+            float weight = pow(1.0 - smoothstep(0.0, range, x), curve);
+            vec4 pixel = unpremultiply(source);
+            vec3 rgb = pixel.rgb * (1.0 + brightness * weight);
+            float gray = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+            rgb = vec3(gray) + (rgb - vec3(gray)) * (1.0 + saturation * weight);
+            return premultiply(vec4(rgb, pixel.a));
+        }
+        """)
     private static let maskKernel = CIKernel(source: """
         kernel vec4 compensate(sampler image, float width, float opacity, float strength,
                                float gradient, float protect) {
@@ -110,11 +124,23 @@ enum WallpaperRenderer {
         if let gamma = adjustment.gamma, gamma != 1 {
             output = output.applyingFilter("CIGammaAdjust", parameters: ["inputPower": gamma])
         }
-        output = output.applyingFilter("CIColorControls", parameters: [
-            kCIInputBrightnessKey: adjustment.brightness,
-            kCIInputContrastKey: adjustment.contrast,
-            kCIInputSaturationKey: adjustment.saturation
-        ])
+        if adjustment.brightness != 0 || adjustment.contrast != 1 || adjustment.saturation != 1 {
+            output = output.applyingFilter("CIColorControls", parameters: [
+                kCIInputBrightnessKey: adjustment.brightness,
+                kCIInputContrastKey: adjustment.contrast,
+                kCIInputSaturationKey: adjustment.saturation
+            ])
+        }
+        if let edge = adjustment.leftEdge, edge.width > 0, edge.brightness != 0 || edge.saturation != 0 {
+            guard let blended = leftEdgeKernel?.apply(
+                extent: input.extent, roiCallback: { _, rect in rect }, arguments: [
+                    output, input.extent.width, min(0.5, edge.width),
+                    max(-0.5, min(1, edge.brightness)), max(-0.5, min(1, edge.saturation)),
+                    max(0.75, min(3, edge.curve))
+                ]
+            ) else { throw CocoaError(.fileWriteUnknown) }
+            output = blended
+        }
         guard let result = context.createCGImage(output, from: input.extent) else { throw CocoaError(.fileWriteUnknown) }
         return UIImage(cgImage: result, scale: image.scale, orientation: image.imageOrientation)
     }

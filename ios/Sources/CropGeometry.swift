@@ -58,6 +58,14 @@ struct WallpaperColorAdjustment: Codable, Equatable {
     var temperature: Double?
     var gamma: Double?
     var mask: WallpaperMaskCompensation?
+    var leftEdge: WallpaperLeftEdgeBlend?
+}
+
+struct WallpaperLeftEdgeBlend: Codable, Equatable {
+    var width = 0.20
+    var brightness = 0.25
+    var saturation = 0.08
+    var curve = 1.0
 }
 
 struct WallpaperMaskCompensation: Codable, Equatable {
