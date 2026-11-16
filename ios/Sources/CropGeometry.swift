@@ -33,7 +33,7 @@ enum WallpaperPreset: String, CaseIterable, Codable, Identifiable {
     }
     var detail: String {
         if preservesSourceSize { return "按每张照片的原始像素输出，不缩放、不裁切，也不用模糊填充。旋转或翻转后宽高会跟着变。" }
-        return crops ? "照片铺满画面，多出的部分裁掉。可点“调整”移动位置。" : "整张照片居中保留，空余区域用照片自身的模糊画面填满，不留黑边、不拉变形。"
+        return crops ? "照片铺满画面，多出的部分裁掉。可点“裁剪”移动位置。" : "整张照片居中保留，空余区域用照片自身的模糊画面填满，不留黑边、不拉变形。"
     }
 }
 

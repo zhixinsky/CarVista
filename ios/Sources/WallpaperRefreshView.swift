@@ -7,7 +7,7 @@ struct WallpaperRefreshButton: View {
     @State private var showing = false
     var body: some View {
         Button { showing = true } label: {
-            Label("注销", systemImage: "arrow.clockwise")
+            Label("注销 CarPlay", systemImage: "arrow.clockwise")
         }.disabled(model.busy).accessibilityIdentifier("wallpaper.refresh")
             .sheet(isPresented: $showing) { WallpaperRefreshView() }
     }

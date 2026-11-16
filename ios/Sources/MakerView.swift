@@ -97,7 +97,7 @@ struct ComposeWallpaperView: View {
                         }.buttonStyle(.borderedProminent).disabled(locked).accessibilityIdentifier("maker.select")
                             .accessibilityLabel(photo == nil ? "相册" : "更换照片")
                         if photo != nil {
-                            Button("调整") { adjusting = true }.buttonStyle(.bordered).disabled(locked)
+                            Button("裁剪") { adjusting = true }.buttonStyle(.bordered).disabled(locked)
                                 .accessibilityIdentifier("maker.adjust")
                             Button("整体校色") { colorEditing = true }.buttonStyle(.bordered).disabled(locked)
                                 .fixedSize(horizontal: true, vertical: false)
@@ -149,10 +149,13 @@ struct ComposeWallpaperView: View {
                     Text("CarPlay").font(.headline)
                     Label(model.group.isEmpty ? "本地制作可用，车机访问需有效签名" : "签名组已提供", systemImage: "checkmark.shield")
                         .font(.subheadline).foregroundStyle(.secondary)
-                    Button("检测车机壁纸") { model.scan(deep: false) }.disabled(locked || model.group.isEmpty)
+                    HStack {
+                        Button("检测车机壁纸") { model.scan(deep: false) }.disabled(locked || model.group.isEmpty)
+                        Spacer()
+                        WallpaperRefreshButton().buttonStyle(.bordered)
+                    }
                     if !model.targets.isEmpty { Text("已找到 \(model.targets.count) 个缓存文件").font(.caption).foregroundStyle(.secondary) }
                     if model.busy { ProgressView("正在处理…") }
-                    WallpaperRefreshButton()
                     Text(model.message).font(.caption).foregroundStyle(.secondary)
                 }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
                     .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
