@@ -76,14 +76,25 @@ struct WallpaperAdjustmentView: View {
                         }.pickerStyle(.segmented)
                         triangle(-1)
                         triangle(1)
+                        if zoom > 1 {
+                            Button(action: focusSelectedEdge) {
+                                Image(systemName: "scope").frame(width: 44, height: 44)
+                            }.accessibilityLabel("定位选中边线")
+                        }
                     }
                     }
                     HStack {
                         Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素 · \(panning ? "拖动查看大图" : "拖动裁剪框，双指放大")")
+                            .font(.caption).monospacedDigit().foregroundStyle(.secondary)
                         Spacer()
-                        Button(showsFineControls ? "收起微调" : "逐像素微调") { showsFineControls.toggle() }
+                        Button { showsFineControls.toggle() } label: {
+                            Label(showsFineControls ? "收起微调" : "逐像素微调", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(minHeight: 34)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .fixedSize(horizontal: true, vertical: false)
                     }
-                        .font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
             }
             .padding(12)
@@ -194,7 +205,7 @@ struct WallpaperAdjustmentView: View {
     private func viewport(_ image: UIImage, crop: WallpaperPixelCrop, viewportSize: CGSize) -> some View {
         let fit = CropGeometry.fit(source: pixels, target: viewportSize).size
         let size = CGSize(width: fit.width * zoom, height: fit.height * zoom)
-        let focus = clampedCenter(center, image: size, viewport: viewportSize)
+        let focus = zoom > 1 ? clampedCenter(center) : CGPoint(x: 0.5, y: 0.5)
         return ZStack(alignment: .topLeading) {
             Color(uiColor: .secondarySystemGroupedBackground)
             if size.width > 0, size.height > 0 {
@@ -204,13 +215,13 @@ struct WallpaperAdjustmentView: View {
                             y: viewportSize.height / 2 - focus.y * size.height)
             }
             if panning {
-                Color.clear.contentShape(Rectangle()).gesture(DragGesture().onChanged { value in
-                    guard size.width > 0, size.height > 0 else { return }
+                Color.clear.frame(width: viewportSize.width, height: viewportSize.height)
+                    .contentShape(Rectangle()).gesture(DragGesture().onChanged { value in
+                    guard pinchStart == nil, size.width > 0, size.height > 0 else { return }
                     if panStart == nil { panStart = focus }
                     guard let start = panStart else { return }
                     center = clampedCenter(CGPoint(x: start.x - value.translation.width / size.width,
-                                                   y: start.y - value.translation.height / size.height),
-                                           image: size, viewport: viewportSize)
+                                                   y: start.y - value.translation.height / size.height))
                 }.onEnded { _ in panStart = nil })
             }
         }
@@ -224,11 +235,9 @@ struct WallpaperAdjustmentView: View {
         }.onEnded { _ in pinchStart = nil })
     }
 
-    private func clampedCenter(_ point: CGPoint, image: CGSize, viewport: CGSize) -> CGPoint {
-        guard image.width > 0, image.height > 0 else { return CGPoint(x: 0.5, y: 0.5) }
-        let x = min(0.5, viewport.width / (2 * image.width))
-        let y = min(0.5, viewport.height / (2 * image.height))
-        return CGPoint(x: min(1 - x, max(x, point.x)), y: min(1 - y, max(y, point.y)))
+    private func clampedCenter(_ point: CGPoint) -> CGPoint {
+        // Let even the outermost image edges reach the center of the viewport.
+        CGPoint(x: min(1, max(0, point.x)), y: min(1, max(0, point.y)))
     }
 
     private func focusSelectedEdge() {
