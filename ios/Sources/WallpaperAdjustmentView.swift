@@ -3,13 +3,13 @@ import SwiftUI
 
 struct WallpaperAdjustmentView: View {
     private enum Ratio: String, CaseIterable {
-        case free = "自由", wide = "16:9", portrait = "3:4", buick = "3083×815（别克）"
+        case free = "自由裁剪", standard = "4:3 标准", wide = "16:9 宽屏", buick = "别克大连屏"
 
         var units: (width: Int, height: Int)? {
             switch self {
             case .free: return nil
             case .wide: return (16, 9)
-            case .portrait: return (3, 4)
+            case .standard: return (4, 3)
             case .buick: return (3083, 815)
             }
         }
@@ -280,10 +280,15 @@ struct WallpaperAdjustmentView: View {
                 path.addRect(rect)
             }.fill(.black.opacity(0.30), style: FillStyle(eoFill: true)).allowsHitTesting(false)
             if rect.width > 0, rect.height > 0 {
-                Rectangle()
-                    .strokeBorder(.yellow, style: StrokeStyle(lineWidth: 1.5, dash: [7, 5]))
-                    .shadow(color: .black.opacity(0.6), radius: 1)
-                    .background(Color.clear)
+                Color.clear
+                    .overlay {
+                        if ratio != .free {
+                            Rectangle()
+                                .strokeBorder(.yellow, style: StrokeStyle(lineWidth: 1.5, dash: [7, 5]))
+                                .shadow(color: .black.opacity(0.6), radius: 1)
+                                .allowsHitTesting(false)
+                        }
+                    }
                     .frame(width: rect.width, height: rect.height)
                     .contentShape(Rectangle())
                     .position(x: rect.midX, y: rect.midY)
