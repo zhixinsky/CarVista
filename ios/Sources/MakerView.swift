@@ -101,6 +101,18 @@ struct ComposeWallpaperView: View {
                                 .accessibilityIdentifier("maker.adjust")
                             Button("整体校色") { colorEditing = true }.buttonStyle(.bordered).disabled(locked)
                                 .fixedSize(horizontal: true, vertical: false)
+                            Button { downloadPhoto() } label: {
+                                if savingPhoto {
+                                    ProgressView().accessibilityLabel("正在保存到相册")
+                                } else {
+                                    ViewThatFits(in: .horizontal) {
+                                        Text("下载").fixedSize()
+                                        Image(systemName: "arrow.down.to.line")
+                                    }
+                                }
+                            }.buttonStyle(.bordered).disabled(locked)
+                                .accessibilityLabel(savingPhoto ? "正在保存到相册" : "下载")
+                                .accessibilityHint("保存调整后的照片到相册")
                             Spacer(minLength: 0)
                             Button(role: .destructive) { removeCurrent() } label: { Image(systemName: "trash") }
                                 .buttonStyle(.bordered).disabled(locked).accessibilityLabel("移除当前照片")
@@ -111,10 +123,10 @@ struct ComposeWallpaperView: View {
                     if loading { ProgressView("正在导入照片…") }
                     if photo != nil {
                         HStack(spacing: 8) {
-                            Button { downloadPhoto() } label: {
-                                if savingPhoto { ProgressView().accessibilityLabel("正在保存到相册") }
-                                else { Label("下载", systemImage: "arrow.down.to.line") }
-                            }.buttonStyle(.bordered).disabled(locked).accessibilityHint("保存调整后的照片到相册")
+                            Button { generate() } label: {
+                                Text("仅生成壁纸文件").multilineTextAlignment(.center)
+                            }.buttonStyle(.bordered).tint(.indigo).disabled(locked)
+                                .accessibilityIdentifier("wallpaper.generate")
                             Button { prepareCurrentWallpaper() } label: {
                                 Label("应用到 CarPlay", systemImage: "car.side.fill").frame(maxWidth: .infinity)
                             }.buttonStyle(.borderedProminent).disabled(locked)
@@ -171,8 +183,6 @@ struct ComposeWallpaperView: View {
                     Menu {
                         Button { showTool(.history) } label: { Label("历史记录", systemImage: "clock") }
                         Button { showTool(.cache) } label: { Label("壁纸缓存", systemImage: "folder") }
-                        Button { generate() } label: { Label("仅生成壁纸文件", systemImage: "square.and.arrow.down") }
-                            .disabled(photos.isEmpty || locked)
                     } label: {
                         Label("壁纸工具", systemImage: "ellipsis.circle")
                     }.accessibilityIdentifier("wallpaper.tools")

@@ -7,7 +7,7 @@ struct WallpaperRefreshButton: View {
     @State private var showing = false
     var body: some View {
         Button { showing = true } label: {
-            Label("注销 CarPlay", systemImage: "arrow.clockwise")
+            Label("重启 CarPlay", systemImage: "arrow.clockwise")
         }.disabled(model.busy).accessibilityIdentifier("wallpaper.refresh")
             .sheet(isPresented: $showing) { WallpaperRefreshView() }
     }
@@ -23,7 +23,7 @@ final class RespringController: ObservableObject {
     func start() {
         guard !active else { return }
         #if targetEnvironment(simulator)
-        message = "模拟器不执行注销，请在真机验证。"
+        message = "模拟器不执行界面重载，请在真机验证。"
         #else
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
@@ -36,7 +36,7 @@ final class RespringController: ObservableObject {
         view.scrollView.isScrollEnabled = false
         webView = view
         active = true
-        message = "正在尝试注销，尚未确认生效…"
+        message = "正在尝试重载系统界面，请稍后到车机确认壁纸是否生效…"
         view.loadHTMLString(RespringDocument.document, baseURL: nil)
         timer = Task { [weak self] in
             do { try await Task.sleep(nanoseconds: 10_000_000_000) } catch { return }
@@ -82,14 +82,14 @@ private struct WallpaperRefreshView: View {
                     ProgressView("正在尝试…")
                     Button("停止尝试") { controller.stop("已停止，未确认是否刷新。") }
                 } else {
-                    Button("注销并刷新壁纸") { controller.start() }
+                    Button("重载界面，让壁纸生效") { controller.start() }
                         .buttonStyle(.borderedProminent).disabled(model.busy)
                         .accessibilityIdentifier("respring.start")
                     Text("若无效果，请手动重启 iPhone 后重新连接 CarPlay。无需配置快捷指令。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-            }.padding(20).navigationTitle("注销").navigationBarTitleDisplayMode(.inline)
+            }.padding(20).navigationTitle("重启 CarPlay").navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("完成") { dismiss() } }
                 .onChange(of: phase) { _, value in
                     if value != .active, controller.active {
