@@ -30,72 +30,53 @@ extension WorkshopModel {
     }
 }
 
+enum WallpaperRoute: Hashable {
+    case history, cache
+}
+
+struct GalleryImport: Identifiable {
+    let id = UUID()
+    let data: Data
+}
+
 struct CanvasHomeView: View {
-    @EnvironmentObject var model: WorkshopModel
+    private enum Tab: Hashable { case wallpaper, gallery, settings }
     @AppStorage("CCGuideSeen") private var guideSeen = false
     @State private var guide = false
+    @State private var tab = Tab.wallpaper
+    @State private var wallpaperPath: [WallpaperRoute] = []
+    @State private var galleryImport: GalleryImport?
+
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    HStack(spacing: 18) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("CarVista").font(.largeTitle.bold()).minimumScaleFactor(0.75).lineLimit(1)
-                            Text("把喜欢的风景，带上车。").font(.subheadline)
-                            Text("v\(CanvasTheme.version)").font(.caption).opacity(0.8)
+        TabView(selection: $tab) {
+            NavigationStack(path: $wallpaperPath) {
+                ComposeWallpaperView(galleryImport: $galleryImport) { wallpaperPath.append($0) }
+                    .navigationDestination(for: WallpaperRoute.self) { destination in
+                        switch destination {
+                        case .history: CanvasHistoryView()
+                        case .cache: CacheBrowserView()
                         }
-                        Spacer(minLength: 0)
-                        Image("BrandMark").resizable().frame(width: 76, height: 76)
-                            .clipShape(RoundedRectangle(cornerRadius: 19)).accessibilityHidden(true)
-                    }.foregroundStyle(.white).padding(24)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(LinearGradient(colors: [CanvasTheme.accent, Color(red: 0.15, green: 0.33, blue: 0.55)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 28))
-                    NavigationLink { ComposeWallpaperView() } label: {
-                        HomeRow(title: "壁纸", subtitle: "选择图片，制作并应用车机壁纸", symbol: "photo.on.rectangle.angled")
-                    }.accessibilityIdentifier("home.wallpaper")
-                    NavigationLink { CanvasHistoryView() } label: {
-                        HomeRow(title: "历史记录", subtitle: "查看、分享和应用已保存的壁纸", symbol: "clock.arrow.circlepath")
-                    }.accessibilityIdentifier("home.history")
-                    NavigationLink { CacheBrowserView() } label: {
-                        HomeRow(title: "CarPlay 壁纸缓存", subtitle: "查看车机壁纸，管理恢复备份", symbol: "folder.fill")
-                    }.accessibilityIdentifier("home.cache")
-                    NavigationLink { CanvasSettingsView() } label: {
-                        HomeRow(title: "设置", subtitle: "使用指南、安装检查与关于", symbol: "gearshape.fill")
-                    }.accessibilityIdentifier("home.settings")
-                    Button("第一次使用？查看四步指南") { guide = true }
-                        .font(.footnote).padding(.top, 14)
-                    Text("让每次出发，都有喜欢的画面。")
-                        .font(.caption).foregroundStyle(.secondary).padding(.bottom, 24)
-                }.padding(20).frame(maxWidth: 660)
-                    .frame(maxWidth: .infinity)
-            }.background(Color(uiColor: .systemGroupedBackground))
-                .toolbar(.hidden, for: .navigationBar)
-                .task { if !guideSeen { guide = true } }
-                .sheet(isPresented: $guide, onDismiss: { guideSeen = true }) { CanvasGuideView() }
-        }.tint(CanvasTheme.accent)
-    }
-}
-
-private struct HomeRow: View {
-    let title: String
-    let subtitle: String
-    let symbol: String
-    var body: some View {
-        HStack(spacing: 16) {
-            Image(systemName: symbol).font(.title2).foregroundStyle(CanvasTheme.accent)
-                .frame(width: 52, height: 56).background(CanvasTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 16))
-            VStack(alignment: .leading, spacing: 7) {
-                Text(title).font(.headline).foregroundStyle(Color.primary)
-                Text(subtitle).font(.subheadline).foregroundStyle(Color.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
             }
-            Spacer(minLength: 0)
-            Image(systemName: "chevron.right").font(.footnote.bold()).foregroundStyle(Color.gray.opacity(0.65))
-        }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 23))
-            .contentShape(Rectangle())
+            .tabItem { Label("壁纸", systemImage: "photo.on.rectangle") }.tag(Tab.wallpaper)
+
+            NavigationStack {
+                WallpaperGalleryView { data in
+                    galleryImport = GalleryImport(data: data)
+                    wallpaperPath.removeAll()
+                    tab = .wallpaper
+                }
+            }
+            .tabItem { Label("图库", systemImage: "photo.stack") }.tag(Tab.gallery)
+
+            NavigationStack { CanvasSettingsView() }
+                .tabItem { Label("设置", systemImage: "gearshape") }.tag(Tab.settings)
+        }
+        .tint(CanvasTheme.accent)
+        .task { if !guideSeen { guide = true } }
+        .sheet(isPresented: $guide, onDismiss: { guideSeen = true }) { CanvasGuideView() }
     }
 }
-
 struct CanvasHistoryView: View {
     @EnvironmentObject var model: WorkshopModel
     @State private var clear = false
@@ -303,8 +284,8 @@ struct CanvasGuideView: View {
     @Environment(\.dismiss) private var dismiss
     private let steps = [
         ("生成车机壁纸缓存", "停车后，在车机 CarPlay 的“设置 → 壁纸”中切换几张内置图片壁纸。不同系统的排列可能不同。"),
-        ("制作自己的壁纸", "打开“壁纸”，选择照片与尺寸模式，点击“生成壁纸文件”。深色与浅色会一起保存，不调整也可以。"),
-        ("选择目标并应用", "点击“应用当前照片”，选择要替换的内置壁纸。也可从历史记录再次应用，原文件会自动备份。"),
+        ("选择照片", "在“壁纸”里选相册照片或内置壁纸，也可在“图库”里选择 Bing 图片。需要裁剪时点“调整”。"),
+        ("选择目标并应用", "点“应用当前照片”即可生成文件并选择替换目标，原文件会自动备份。历史记录和壁纸缓存位于“壁纸”右上角。"),
         ("注销", "替换后点“注销”，尝试重载系统界面，返回桌面后重新连接车机检查；无效时手动重启 iPhone。需要还原时，在缓存页进入“备份与恢复”。")]
     var body: some View {
         NavigationStack {

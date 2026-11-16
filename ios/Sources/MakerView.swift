@@ -4,6 +4,9 @@ import PhotosUI
 
 struct ComposeWallpaperView: View {
     @EnvironmentObject var model: WorkshopModel
+    @Binding var galleryImport: GalleryImport?
+    private let openTool: ((WallpaperRoute) -> Void)?
+    @State private var tool: WallpaperRoute?
     @State private var photos: [MakerPhoto] = []
     @State private var selection: PhotosPickerItem?
     @State private var current = 0
@@ -24,7 +27,10 @@ struct ComposeWallpaperView: View {
         let turns = (((photo?.adjustment.turns ?? 0) % 4) + 4) % 4
         return turns % 2 == 0 ? sourcePixels : CGSize(width: sourcePixels.height, height: sourcePixels.width)
     }
-    private var filesPerPhoto: Int { 2 }
+    init(galleryImport: Binding<GalleryImport?> = .constant(nil), openTool: ((WallpaperRoute) -> Void)? = nil) {
+        _galleryImport = galleryImport
+        self.openTool = openTool
+    }
     private var outputLabel: String {
         guard outputSize.width > 0, outputSize.height > 0 else { return "读取原图尺寸…" }
         return "\(Int(outputSize.width)) × \(Int(outputSize.height))"
@@ -42,7 +48,6 @@ struct ComposeWallpaperView: View {
                         Text("制作并替换 CarPlay 壁纸").foregroundStyle(.secondary)
                     }
                 }
-                step("01", "选择照片", "从相册选择一张照片，可在「调整」中裁剪。")
                 VStack(spacing: 14) {
                     Group {
                         if let preview { Image(uiImage: preview).resizable().scaledToFit() }
@@ -79,6 +84,10 @@ struct ComposeWallpaperView: View {
                             .buttonStyle(.bordered).disabled(photo == nil || locked).accessibilityLabel("移除当前照片")
                     }
                     if loading { ProgressView("正在导入照片…") }
+                    Button { prepareCurrentWallpaper() } label: {
+                        Label("应用当前照片", systemImage: "car.side.fill").frame(maxWidth: .infinity)
+                    }.buttonStyle(.borderedProminent).disabled(photo == nil || locked)
+                    if let problem { Text(problem).font(.subheadline).foregroundStyle(.red) }
                 }.padding(16).background(cardColor, in: RoundedRectangle(cornerRadius: 24))
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -101,33 +110,38 @@ struct ComposeWallpaperView: View {
                     }
                 }.padding(16).background(cardColor, in: RoundedRectangle(cornerRadius: 24))
                 VStack(alignment: .leading, spacing: 16) {
-                    step("02", "生成壁纸文件", "每张照片自动生成深色与浅色两个版本。")
-                    Text("输出 · \(outputLabel)").font(.subheadline).foregroundStyle(.secondary)
-                    Button { generate() } label: {
-                        Label("生成壁纸文件", systemImage: "sparkles").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 9)
-                    }.buttonStyle(.borderedProminent).disabled(photos.isEmpty || locked).accessibilityIdentifier("wallpaper.generate")
-                    if model.busy { ProgressView(value: model.generationProgress); Text("正在处理，请保持应用在前台…").font(.caption) }
-                    Text("已生成 \(generated.values.reduce(0) { $0 + $1.count }) / \(photos.count * filesPerPhoto)").font(.caption).foregroundStyle(.secondary)
-                    if let problem { Text(problem).font(.subheadline).foregroundStyle(.red) }
-                }.padding(18).background(cardColor, in: RoundedRectangle(cornerRadius: 24))
-
-                VStack(alignment: .leading, spacing: 16) {
-                    step("03", "替换 CarPlay 壁纸", "选择目标后自动备份，再直接写入生成的文件。")
+                    Text("CarPlay").font(.headline)
                     Label(model.group.isEmpty ? "本地制作可用，车机访问需有效签名" : "签名组已提供", systemImage: "checkmark.shield")
                         .font(.subheadline).foregroundStyle(.secondary)
                     Button("检测车机壁纸") { model.scan(deep: false) }.disabled(locked || model.group.isEmpty)
                     if !model.targets.isEmpty { Text("已找到 \(model.targets.count) 个缓存文件").font(.caption).foregroundStyle(.secondary) }
-                    Button { prepareCurrentWallpaper() } label: {
-                        Label("应用当前照片", systemImage: "car.side.fill").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
-                    }.buttonStyle(.borderedProminent).disabled(photo == nil || locked)
+                    if model.busy { ProgressView("正在处理…") }
                     WallpaperRefreshButton()
-                    NavigationLink("查看历史记录与已生成文件") { CanvasHistoryView() }
                     Text(model.message).font(.caption).foregroundStyle(.secondary)
                 }.padding(18).background(cardColor, in: RoundedRectangle(cornerRadius: 24))
             }.padding(20).frame(maxWidth: 680).frame(maxWidth: .infinity)
         }.background(Color(uiColor: .systemGroupedBackground)).tint(CanvasTheme.accent)
             .navigationTitle("壁纸").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button { showTool(.history) } label: { Label("历史记录", systemImage: "clock") }
+                        Button { showTool(.cache) } label: { Label("壁纸缓存", systemImage: "folder") }
+                        Button { generate() } label: { Label("仅生成壁纸文件", systemImage: "square.and.arrow.down") }
+                            .disabled(photos.isEmpty || locked)
+                    } label: {
+                        Label("壁纸工具", systemImage: "ellipsis.circle")
+                    }.accessibilityIdentifier("wallpaper.tools")
+                }
+            }
+            .navigationDestination(item: $tool) { destination in
+                switch destination {
+                case .history: CanvasHistoryView()
+                case .cache: CacheBrowserView()
+                }
+            }
             .onAppear { initialize() }
+            .task(id: galleryImport?.id) { await importGallerySelection() }
             .task(id: selection) { await importSelection() }
             .task(id: photo?.id) { await loadSourcePixels() }
             .task(id: renderKey) { await refreshPreview() }
@@ -140,6 +154,32 @@ struct ComposeWallpaperView: View {
             .sheet(isPresented: $applying) {
                 if let photo, let entries = generated[photo.id] { NavigationStack { ApplyWallpaperView(entries: entries) } }
             }
+    }
+    private func showTool(_ destination: WallpaperRoute) {
+        if let openTool { openTool(destination) } else { tool = destination }
+    }
+
+    private func importGallerySelection() async {
+        guard let request = galleryImport else { return }
+        while locked {
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+        }
+        loading = true
+        problem = nil
+        defer {
+            loading = false
+            if !Task.isCancelled, galleryImport?.id == request.id { galleryImport = nil }
+        }
+        do {
+            let incoming = try await Task.detached { try MakerDraft.importPhoto(data: request.data) }.value
+            guard !Task.isCancelled else {
+                try? FileManager.default.removeItem(at: incoming.url)
+                return
+            }
+            try replaceCurrent(with: incoming)
+        } catch {
+            problem = "导入图库照片失败：\(error.localizedDescription)"
+        }
     }
     private func selectBuiltin(_ wallpaper: BuiltinWallpaper) {
         guard !locked else { return }
@@ -192,13 +232,6 @@ struct ComposeWallpaperView: View {
         }
     }
     private var cardColor: Color { Color(uiColor: .secondarySystemGroupedBackground) }
-    private func step(_ number: String, _ title: String, _ subtitle: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text(number).font(.subheadline.bold()).foregroundStyle(CanvasTheme.accent).frame(width: 36, height: 36)
-                .background(CanvasTheme.accent.opacity(0.12), in: Circle())
-            VStack(alignment: .leading, spacing: 4) { Text(title).font(.title3.bold()); Text(subtitle).font(.caption).foregroundStyle(.secondary) }
-        }
-    }
     private func initialize() {
         guard !initialized else { return }; initialized = true
         photos = MakerDraft.load()
