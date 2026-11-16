@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
-import UIKit
 
 struct WallpaperAdjustmentView: View {
     private enum Ratio: String, CaseIterable {
@@ -41,11 +40,10 @@ struct WallpaperAdjustmentView: View {
     @State private var zoom = 1.0
     @State private var center = CGPoint(x: 0.5, y: 0.5)
     @State private var panStart: CGPoint?
-    @State private var panning = false
+    @State private var cropLocked = false
     @State private var ratio: Ratio = .free
     @State private var showsRatios = false
     @State private var frameDragStart: WallpaperPixelCrop?
-    @State private var twoFingerStart: CGPoint?
     @State private var showsFineControls = false
 
     var body: some View {
@@ -62,11 +60,18 @@ struct WallpaperAdjustmentView: View {
                 }
                 if let crop {
                     HStack {
-                        if #available(iOS 18, *) { Text("缩放") }
-                        else {
-                            Button(panning ? "裁剪" : "移动大图", systemImage: panning ? "crop" : "hand.draw") { panning.toggle() }
-                                .disabled(zoom == 1)
+                        Button {
+                            cropLocked.toggle()
+                            panStart = nil
+                            dragStart = nil
+                            frameDragStart = nil
+                        } label: {
+                            Label(cropLocked ? "已锁定 · 解锁" : "锁定裁剪",
+                                  systemImage: cropLocked ? "lock.fill" : "lock.open")
                         }
+                        .buttonStyle(.bordered)
+                        .tint(cropLocked ? .orange : CanvasTheme.accent)
+                        .fixedSize()
                         Slider(value: $zoom, in: 1...6).accessibilityLabel("预览缩放")
                         Button("全图") { zoom = 1 }.disabled(zoom == 1)
                     }.font(.subheadline)
@@ -113,8 +118,8 @@ struct WallpaperAdjustmentView: View {
                 ToolbarItemGroup(placement: .confirmationAction) {
                     Button { showsRatios.toggle() } label: {
                         Label(ratio == .free ? "比例" : ratio.rawValue, systemImage: "aspectratio")
-                    }.disabled(crop == nil).accessibilityIdentifier("crop.ratio")
-                    Button("还原") { showsRatios = false; ratio = .free; crop = .full(pixels); zoom = 1 }.disabled(crop == nil)
+                    }.disabled(crop == nil || cropLocked).accessibilityIdentifier("crop.ratio")
+                    Button("还原") { showsRatios = false; ratio = .free; crop = .full(pixels); zoom = 1 }.disabled(crop == nil || cropLocked)
                     Button("确定") {
                         guard let crop else { return }
                         save(crop)
@@ -125,7 +130,6 @@ struct WallpaperAdjustmentView: View {
             .onChange(of: zoom) { previous, current in
                 if current == 1 {
                     center = CGPoint(x: 0.5, y: 0.5)
-                    panning = false
                 } else if previous == 1 {
                     focusSelectedEdge()
                 }
@@ -150,8 +154,8 @@ struct WallpaperAdjustmentView: View {
     }
 
     private var gestureHint: String {
-        if #available(iOS 18, *) { return zoom > 1 ? "双指移动大图" : "拖动裁剪框，滑杆缩放" }
-        return panning ? "拖动查看大图" : "拖动裁剪框，滑杆缩放"
+        if cropLocked { return zoom > 1 ? "单指拖动查看大图" : "裁剪已锁定，可用滑杆放大" }
+        return "拖动裁剪框，滑杆缩放"
     }
 
     private var ratioOverlay: some View {
@@ -191,7 +195,7 @@ struct WallpaperAdjustmentView: View {
     }
 
     private func selectRatio(_ option: Ratio) {
-        guard let current = crop else { return }
+        guard !cropLocked, let current = crop else { return }
         guard let units = option.units else { ratio = .free; return }
         let scale = min(Int(pixels.width) / units.width, Int(pixels.height) / units.height)
         guard scale > 0 else { return }
@@ -202,68 +206,47 @@ struct WallpaperAdjustmentView: View {
         crop = WallpaperPixelCrop(left: left, top: top, right: left + width, bottom: top + height)
         ratio = option
         zoom = 1
-        panning = false
     }
 
     private func translate(_ original: WallpaperPixelCrop, x: Int, y: Int) {
+        guard !cropLocked else { return }
         let dx = min(Int(pixels.width) - original.right, max(-original.left, x))
         let dy = min(Int(pixels.height) - original.bottom, max(-original.top, y))
         crop = WallpaperPixelCrop(left: original.left + dx, top: original.top + dy,
                                   right: original.right + dx, bottom: original.bottom + dy)
     }
 
-    @ViewBuilder
     private func viewport(_ image: UIImage, crop: WallpaperPixelCrop, viewportSize: CGSize) -> some View {
         let fit = CropGeometry.fit(source: pixels, target: viewportSize).size
         let size = CGSize(width: fit.width * zoom, height: fit.height * zoom)
         let focus = zoom > 1 ? clampedCenter(center) : CGPoint(x: 0.5, y: 0.5)
-        let canvas = Color(uiColor: .secondarySystemGroupedBackground)
+        return Color(uiColor: .secondarySystemGroupedBackground)
             .frame(width: viewportSize.width, height: viewportSize.height)
             .overlay(alignment: .topLeading) {
-            if size.width > 0, size.height > 0 {
-                editor(image, crop: crop, size: size)
-                    .frame(width: size.width, height: size.height)
-                    .offset(x: viewportSize.width / 2 - focus.x * size.width,
-                            y: viewportSize.height / 2 - focus.y * size.height)
-            }
+                if size.width > 0, size.height > 0 {
+                    editor(image, crop: crop, size: size)
+                        .frame(width: size.width, height: size.height)
+                        .offset(x: viewportSize.width / 2 - focus.x * size.width,
+                                y: viewportSize.height / 2 - focus.y * size.height)
+                        .allowsHitTesting(!cropLocked)
+                }
             }
             .overlay {
-            if panning {
-                Color.clear.frame(width: viewportSize.width, height: viewportSize.height)
-                    .contentShape(Rectangle()).gesture(DragGesture().onChanged { value in
-                    guard size.width > 0, size.height > 0 else { return }
-                    if panStart == nil { panStart = focus }
-                    guard let start = panStart else { return }
-                    center = clampedCenter(CGPoint(x: start.x - value.translation.width / size.width,
-                                                   y: start.y - value.translation.height / size.height))
-                }.onEnded { _ in panStart = nil })
-            }
+                if cropLocked && zoom > 1 {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(DragGesture().onChanged { value in
+                            guard size.width > 0, size.height > 0 else { return }
+                            if panStart == nil { panStart = focus }
+                            guard let start = panStart else { return }
+                            center = clampedCenter(CGPoint(x: start.x - value.translation.width / size.width,
+                                                           y: start.y - value.translation.height / size.height))
+                        }.onEnded { _ in panStart = nil })
+                }
             }
             .clipped()
             .contentShape(Rectangle())
-        if #available(iOS 18, *) {
-            canvas.gesture(CropTwoFingerPan(enabled: zoom > 1) { state, translation in
-                switch state {
-                case .began:
-                    if let start = frameDragStart { self.crop = start }
-                    else if let start = dragStart { move(selected, to: start) }
-                    frameDragStart = nil
-                    dragStart = nil
-                    twoFingerStart = focus
-                case .changed:
-                    guard let start = twoFingerStart, size.width > 0, size.height > 0 else { return }
-                    center = clampedCenter(CGPoint(x: start.x - translation.x / size.width,
-                                                   y: start.y - translation.y / size.height))
-                case .ended, .cancelled, .failed:
-                    twoFingerStart = nil
-                default: break
-                }
-            })
-        } else {
-            canvas
-        }
     }
-
     private func clampedCenter(_ point: CGPoint) -> CGPoint {
         // Let even the outermost image edges reach the center of the viewport.
         CGPoint(x: min(1, max(0, point.x)), y: min(1, max(0, point.y)))
@@ -287,16 +270,17 @@ struct WallpaperAdjustmentView: View {
             Path { path in
                 path.addRect(CGRect(origin: .zero, size: size))
                 path.addRect(rect)
-            }.fill(.black.opacity(0.65), style: FillStyle(eoFill: true)).allowsHitTesting(false)
+            }.fill(.black.opacity(0.30), style: FillStyle(eoFill: true)).allowsHitTesting(false)
             if rect.width > 0, rect.height > 0 {
                 Rectangle()
-                    .strokeBorder(.yellow, lineWidth: 2)
+                    .strokeBorder(.yellow, style: StrokeStyle(lineWidth: 1.5, dash: [7, 5]))
+                    .shadow(color: .black.opacity(0.6), radius: 1)
                     .background(Color.clear)
                     .frame(width: rect.width, height: rect.height)
                     .contentShape(Rectangle())
                     .position(x: rect.midX, y: rect.midY)
                     .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named("crop")).onChanged { value in
-                        guard twoFingerStart == nil else { return }
+                        guard !cropLocked else { return }
                         if frameDragStart == nil { frameDragStart = self.crop }
                         guard let start = frameDragStart else { return }
                         translate(start, x: Int((value.translation.width / xScale).rounded()),
@@ -310,17 +294,24 @@ struct WallpaperAdjustmentView: View {
                     let position = CGFloat(crop[keyPath: edge.coordinate]) * scale
                     let hitInset = min(12, limit / 2)
                     let hitCenter = min(max(position, hitInset), limit - hitInset)
-                    Rectangle()
-                        .fill(edge == selected ? Color.yellow : .white)
-                        .frame(width: edge.vertical ? 2 : size.width, height: edge.vertical ? size.height : 2)
-                        .position(x: edge.vertical ? position : size.width / 2, y: edge.vertical ? size.height / 2 : position)
+                    Path { path in
+                        if edge.vertical {
+                            path.move(to: CGPoint(x: position, y: 0))
+                            path.addLine(to: CGPoint(x: position, y: size.height))
+                        } else {
+                            path.move(to: CGPoint(x: 0, y: position))
+                            path.addLine(to: CGPoint(x: size.width, y: position))
+                        }
+                    }
+                        .stroke(edge == selected ? Color.yellow : .white, style: StrokeStyle(lineWidth: 1.5, dash: [7, 5]))
+                        .shadow(color: .black.opacity(0.6), radius: 1)
                         .allowsHitTesting(false)
                     Color.clear
                         .frame(width: edge.vertical ? 24 : size.width, height: edge.vertical ? size.height : 24)
                         .contentShape(Rectangle())
                         .position(x: edge.vertical ? hitCenter : size.width / 2, y: edge.vertical ? size.height / 2 : hitCenter)
                         .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named("crop")).onChanged { value in
-                            guard scale > 0, twoFingerStart == nil else { return }
+                            guard scale > 0, !cropLocked else { return }
                             if dragStart == nil {
                                 selected = edge
                                 dragStart = self.crop?[keyPath: edge.coordinate]
@@ -350,11 +341,12 @@ struct WallpaperAdjustmentView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
+        .disabled(cropLocked)
         .accessibilityLabel("\(ratio == .free ? selected.rawValue : "裁剪框")向\(direction)移动 1 像素")
     }
 
     private func move(_ edge: Edge, to value: Int) {
-        guard var crop else { return }
+        guard !cropLocked, var crop else { return }
         let bounds: ClosedRange<Int>
         switch edge {
         case .left: bounds = 0...(crop.right - 1)
@@ -364,38 +356,5 @@ struct WallpaperAdjustmentView: View {
         }
         crop[keyPath: edge.coordinate] = min(bounds.upperBound, max(bounds.lowerBound, value))
         self.crop = crop
-    }
-}
-
-@available(iOS 18, *)
-private struct CropTwoFingerPan: UIGestureRecognizerRepresentable {
-    let enabled: Bool
-    let handle: (UIGestureRecognizer.State, CGPoint) -> Void
-
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
-                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-            true
-        }
-    }
-
-    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
-
-    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
-        let recognizer = UIPanGestureRecognizer()
-        recognizer.minimumNumberOfTouches = 2
-        recognizer.maximumNumberOfTouches = 2
-        recognizer.cancelsTouchesInView = false
-        recognizer.delegate = context.coordinator
-        recognizer.isEnabled = enabled
-        return recognizer
-    }
-
-    func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
-        recognizer.isEnabled = enabled
-    }
-
-    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
-        handle(recognizer.state, context.converter.localTranslation ?? .zero)
     }
 }
