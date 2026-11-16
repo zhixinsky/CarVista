@@ -89,7 +89,6 @@ struct ComposeWallpaperView: View {
                             Button(role: .destructive) { removeCurrent() } label: { Image(systemName: "trash") }
                                 .buttonStyle(.bordered).disabled(locked).accessibilityLabel("移除当前照片")
                         } else {
-                            Button("内置壁纸") { withAnimation { scroll.scrollTo("builtins", anchor: .top) } }.buttonStyle(.bordered)
                             if let openGallery { Button("在线图库", action: openGallery).buttonStyle(.bordered) }
                         }
                     }
@@ -124,7 +123,6 @@ struct ComposeWallpaperView: View {
                     }
                 }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
                     .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
-                    .id("builtins")
                 VStack(alignment: .leading, spacing: 16) {
                     Text("CarPlay").font(.headline)
                     Label(model.group.isEmpty ? "本地制作可用，车机访问需有效签名" : "签名组已提供", systemImage: "checkmark.shield")
