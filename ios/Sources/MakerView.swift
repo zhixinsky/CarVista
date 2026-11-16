@@ -88,11 +88,12 @@ struct ComposeWallpaperView: View {
                         Label("应用当前照片", systemImage: "car.side.fill").frame(maxWidth: .infinity)
                     }.buttonStyle(.borderedProminent).disabled(photo == nil || locked)
                     if let problem { Text(problem).font(.subheadline).foregroundStyle(.red) }
-                }.padding(16).background(cardColor, in: RoundedRectangle(cornerRadius: 24))
+                }.padding(16).frame(maxWidth: .infinity)
+                    .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("内置壁纸（别克大连屏专用）").font(.headline)
-                    Text("已裁好。点选后可直接应用当前照片。").font(.caption).foregroundStyle(.secondary)
+                    Text("点选后可直接应用当前照片。").font(.caption).foregroundStyle(.secondary)
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack {
                             ForEach(BuiltinWallpaper.all) { item in
@@ -108,7 +109,8 @@ struct ComposeWallpaperView: View {
                             }
                         }
                     }
-                }.padding(16).background(cardColor, in: RoundedRectangle(cornerRadius: 24))
+                }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
                 VStack(alignment: .leading, spacing: 16) {
                     Text("CarPlay").font(.headline)
                     Label(model.group.isEmpty ? "本地制作可用，车机访问需有效签名" : "签名组已提供", systemImage: "checkmark.shield")
@@ -118,7 +120,8 @@ struct ComposeWallpaperView: View {
                     if model.busy { ProgressView("正在处理…") }
                     WallpaperRefreshButton()
                     Text(model.message).font(.caption).foregroundStyle(.secondary)
-                }.padding(18).background(cardColor, in: RoundedRectangle(cornerRadius: 24))
+                }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
             }.padding(20).frame(maxWidth: 680).frame(maxWidth: .infinity)
         }.background(Color(uiColor: .systemGroupedBackground)).tint(CanvasTheme.accent)
             .navigationTitle("壁纸").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
