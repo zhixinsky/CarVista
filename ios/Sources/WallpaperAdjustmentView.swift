@@ -24,16 +24,17 @@ struct WallpaperAdjustmentView: View {
     @State private var selected: Edge = .left
     @State private var dragStart: Int?
     @State private var failed = false
+    @State private var zoom = 1.0
+    @State private var center = CGPoint(x: 0.5, y: 0.5)
+    @State private var panStart: CGPoint?
+    @State private var panning = false
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 8) {
                 GeometryReader { geometry in
                     if let preview, let crop {
-                        let size = CropGeometry.fit(source: pixels, target: geometry.size).size
-                        editor(preview, crop: crop, size: size)
-                            .frame(width: size.width, height: size.height)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        viewport(preview, crop: crop, viewportSize: geometry.size)
                     } else if failed {
                         Text("无法读取原图").frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
@@ -41,13 +42,24 @@ struct WallpaperAdjustmentView: View {
                     }
                 }
                 if let crop {
-                    Picker("微调边线", selection: $selected) {
-                        ForEach(Edge.allCases, id: \.self) { edge in
-                            Text(edge.rawValue).tag(edge)
-                        }
-                    }.pickerStyle(.segmented)
-                    Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素 · 三角每次移动 1 像素")
-                        .font(.caption).monospacedDigit()
+                    HStack {
+                        Button(panning ? "裁剪" : "移动大图", systemImage: panning ? "crop" : "hand.draw") { panning.toggle() }
+                            .disabled(zoom == 1)
+                        Slider(value: $zoom, in: 1...6).accessibilityLabel("预览缩放")
+                        Button("全图") { zoom = 1 }.disabled(zoom == 1)
+                    }.font(.subheadline)
+                    HStack(spacing: 6) {
+                        Picker("微调边线", selection: Binding(get: { selected }, set: { edge in
+                            selected = edge
+                            if zoom > 1 { focusSelectedEdge() }
+                        })) {
+                            ForEach(Edge.allCases, id: \.self) { edge in Text(edge.rawValue).tag(edge) }
+                        }.pickerStyle(.segmented)
+                        triangle(-1)
+                        triangle(1)
+                    }
+                    Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素 · \(panning ? "拖动查看大图" : "拖动边线，三角微调 1 像素")")
+                        .font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
             }
             .padding(12)
@@ -56,7 +68,7 @@ struct WallpaperAdjustmentView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItemGroup(placement: .confirmationAction) {
-                    Button("还原") { crop = .full(pixels) }.disabled(crop == nil)
+                    Button("还原") { crop = .full(pixels); zoom = 1 }.disabled(crop == nil)
                     Button("确定") {
                         guard let crop else { return }
                         save(crop)
@@ -64,11 +76,19 @@ struct WallpaperAdjustmentView: View {
                     }.disabled(crop == nil)
                 }
             }
+            .onChange(of: zoom) { previous, current in
+                if current == 1 {
+                    center = CGPoint(x: 0.5, y: 0.5)
+                    panning = false
+                } else if previous == 1 {
+                    focusSelectedEdge()
+                }
+            }
             .task {
                 do {
                     let url = photo.url
                     let (image, size) = try await Task.detached {
-                        (try WallpaperRenderer.load(url, maximum: 2400), try WallpaperRenderer.pixelSize(url))
+                        (try WallpaperRenderer.load(url, maximum: 4096), try WallpaperRenderer.pixelSize(url))
                     }.value
                     try Task.checkCancellation()
                     pixels = size
@@ -81,6 +101,49 @@ struct WallpaperAdjustmentView: View {
                 }
             }
         }.tint(CanvasTheme.accent)
+    }
+
+    private func viewport(_ image: UIImage, crop: WallpaperPixelCrop, viewportSize: CGSize) -> some View {
+        let fit = CropGeometry.fit(source: pixels, target: viewportSize).size
+        let size = CGSize(width: fit.width * zoom, height: fit.height * zoom)
+        let focus = clampedCenter(center, image: size, viewport: viewportSize)
+        return ZStack(alignment: .topLeading) {
+            Color(uiColor: .secondarySystemGroupedBackground)
+            if size.width > 0, size.height > 0 {
+                editor(image, crop: crop, size: size)
+                    .frame(width: size.width, height: size.height)
+                    .offset(x: viewportSize.width / 2 - focus.x * size.width,
+                            y: viewportSize.height / 2 - focus.y * size.height)
+            }
+            if panning {
+                Color.clear.contentShape(Rectangle()).gesture(DragGesture().onChanged { value in
+                    guard size.width > 0, size.height > 0 else { return }
+                    if panStart == nil { panStart = focus }
+                    guard let start = panStart else { return }
+                    center = clampedCenter(CGPoint(x: start.x - value.translation.width / size.width,
+                                                   y: start.y - value.translation.height / size.height),
+                                           image: size, viewport: viewportSize)
+                }.onEnded { _ in panStart = nil })
+            }
+        }
+        .frame(width: viewportSize.width, height: viewportSize.height)
+        .clipped()
+        .contentShape(Rectangle())
+    }
+
+    private func clampedCenter(_ point: CGPoint, image: CGSize, viewport: CGSize) -> CGPoint {
+        guard image.width > 0, image.height > 0 else { return CGPoint(x: 0.5, y: 0.5) }
+        let x = min(0.5, viewport.width / (2 * image.width))
+        let y = min(0.5, viewport.height / (2 * image.height))
+        return CGPoint(x: min(1 - x, max(x, point.x)), y: min(1 - y, max(y, point.y)))
+    }
+
+    private func focusSelectedEdge() {
+        guard let crop else { return }
+        let axis = CGFloat(crop[keyPath: selected.coordinate])
+        center = selected.vertical
+            ? CGPoint(x: axis / pixels.width, y: crop.rect.midY / pixels.height)
+            : CGPoint(x: crop.rect.midX / pixels.width, y: axis / pixels.height)
     }
 
     private func editor(_ image: UIImage, crop: WallpaperPixelCrop, size: CGSize) -> some View {
@@ -98,7 +161,8 @@ struct WallpaperAdjustmentView: View {
                 let scale = edge.vertical ? xScale : yScale
                 let limit = edge.vertical ? size.width : size.height
                 let position = CGFloat(crop[keyPath: edge.coordinate]) * scale
-                let hitCenter = min(max(position, 12), max(12, limit - 12))
+                let hitInset = min(12, limit / 2)
+                let hitCenter = min(max(position, hitInset), limit - hitInset)
                 Rectangle()
                     .fill(edge == selected ? Color.yellow : .white)
                     .frame(width: edge.vertical ? 2 : size.width, height: edge.vertical ? size.height : 2)
@@ -121,13 +185,6 @@ struct WallpaperAdjustmentView: View {
                     .onTapGesture { selected = edge }
                     .accessibilityHidden(true)
             }
-            let axis = CGFloat(crop[keyPath: selected.coordinate]) * (selected.vertical ? xScale : yScale)
-            let midpoint = selected.vertical
-                ? CGPoint(x: min(max(axis, 38), max(38, size.width - 38)), y: size.height / 2)
-                : CGPoint(x: size.width / 2, y: min(max(axis, 23), max(23, size.height - 23)))
-            HStack(spacing: 0) { triangle(-1); triangle(1) }
-            .background(.black.opacity(0.8), in: Capsule())
-            .position(x: midpoint.x, y: midpoint.y)
         }
         .coordinateSpace(name: "crop")
     }
@@ -140,11 +197,10 @@ struct WallpaperAdjustmentView: View {
         } label: {
             Image(systemName: "triangle.fill")
                 .rotationEffect(.degrees(selected.vertical ? Double(delta) * 90 : (delta < 0 ? 0 : 180)))
-                .foregroundStyle(.white)
-                .frame(width: 38, height: 36)
+                .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
         .accessibilityLabel("\(selected.rawValue)向\(direction)移动 1 像素")
     }
 
