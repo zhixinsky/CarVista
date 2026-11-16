@@ -25,7 +25,7 @@ struct BuickWallpaperGalleryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Label("别克大连屏用户请自行裁剪尺寸", systemImage: "crop")
+                Label("别克大联屏用户请自行裁剪尺寸", systemImage: "crop")
                     .font(.subheadline).foregroundStyle(.secondary)
                 LazyVStack(alignment: .leading, spacing: 16) {
                     ForEach((1...15).map { Wallpaper(id: $0) }) { wallpaper in
@@ -44,7 +44,7 @@ struct BuickWallpaperGalleryView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         thumbnail(wallpaper)
-                        Text("别克大连屏用户请自行裁剪尺寸").font(.subheadline)
+                        Text("别克大联屏用户请自行裁剪尺寸").font(.subheadline)
                         Text("导入整张原图后，回到壁纸页点「裁剪」。")
                             .font(.footnote).foregroundStyle(.secondary)
                         Button(loading ? "正在导入…" : "使用原图") { importOriginal(wallpaper) }

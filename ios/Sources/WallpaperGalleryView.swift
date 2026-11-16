@@ -69,7 +69,7 @@ private enum BingGallery {
 
 struct WallpaperGalleryView: View {
     private enum Source: String, CaseIterable {
-        case bing = "Bing 每日精选", commons = "Commons 主题找图", buick = "别克大连屏"
+        case bing = "Bing 每日精选", commons = "Commons 主题找图", buick = "别克大联屏"
     }
     let use: (Data) -> Void
     @State private var source: Source = .bing

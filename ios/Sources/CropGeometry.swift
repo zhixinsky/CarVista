@@ -10,7 +10,7 @@ enum WallpaperPreset: String, CaseIterable, Codable, Identifiable {
         case .automatic: return "自动"
         case .standard: return "标准"
         case .wide: return "宽屏"
-        case .panoramic: return "大连屏"
+        case .panoramic: return "大联屏"
         case .original: return "原尺寸"
         case .custom: return "自由裁剪"
         }

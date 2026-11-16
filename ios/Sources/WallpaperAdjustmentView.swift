@@ -3,7 +3,7 @@ import SwiftUI
 
 struct WallpaperAdjustmentView: View {
     private enum Ratio: String, CaseIterable {
-        case free = "自由裁剪", standard = "4:3 标准", wide = "16:9 宽屏", ultrawide = "超宽屏", buick = "别克大连屏"
+        case free = "自由裁剪", standard = "标准 4:3", wide = "宽屏 16:9", ultrawide = "超宽屏", buick = "别克大联屏"
 
         var allowsCornerResize: Bool { self != .free && self != .buick }
 
@@ -52,7 +52,7 @@ struct WallpaperAdjustmentView: View {
     @State private var cropLocked = false
     @State private var ratio: Ratio = .free
     @State private var showsRatios = false
-    @State private var ratioNotice: String?
+    @State private var showsBuickSizeWarning = false
     @State private var frameDragStart: WallpaperPixelCrop?
     @State private var cornerDragStart: WallpaperPixelCrop?
     @State private var showsFineControls = false
@@ -72,11 +72,6 @@ struct WallpaperAdjustmentView: View {
                 .background(Color(uiColor: .systemGray5), in: RoundedRectangle(cornerRadius: 10))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 if crop != nil {
-                    if let ratioNotice {
-                        Label(ratioNotice, systemImage: "info.circle")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
                     HStack {
                         Button {
                             cropLocked.toggle()
@@ -150,7 +145,7 @@ struct WallpaperAdjustmentView: View {
                     Button { showsRatios.toggle() } label: {
                         Label(ratio == .free ? "比例" : ratio.rawValue, systemImage: "aspectratio")
                     }.disabled(crop == nil || cropLocked).accessibilityIdentifier("crop.ratio")
-                    Button("还原") { showsRatios = false; ratioNotice = nil; ratio = .free; crop = .full(pixels); zoom = 1 }.disabled(crop == nil || cropLocked)
+                    Button("还原") { showsRatios = false; ratio = .free; crop = .full(pixels); zoom = 1 }.disabled(crop == nil || cropLocked)
                     Button("确定") {
                         guard let crop else { return }
                         save(crop)
@@ -181,7 +176,30 @@ struct WallpaperAdjustmentView: View {
                     failed = true
                 }
             }
-        }.tint(CanvasTheme.accent)
+        }
+        .accessibilityHidden(showsBuickSizeWarning)
+        .overlay {
+            if showsBuickSizeWarning {
+                ZStack {
+                    Color.black.opacity(0.32).ignoresSafeArea()
+                        .onTapGesture { showsBuickSizeWarning = false }
+                        .accessibilityHidden(true)
+                    VStack(spacing: 12) {
+                        Text("原图尺寸不符").font(.headline)
+                        Text("别克大联屏仅适用于 6008 × 934 像素的原图。当前原图为 \(Int(pixels.width)) × \(Int(pixels.height)) 像素，请使用自由裁剪。")
+                            .font(.subheadline).multilineTextAlignment(.center)
+                        Button("知道了") { showsBuickSizeWarning = false }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .padding(20)
+                    .frame(maxWidth: 360)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+                    .padding(16)
+                    .accessibilityAction(.escape) { showsBuickSizeWarning = false }
+                }
+            }
+        }
+        .tint(CanvasTheme.accent)
     }
 
     private var gestureHint: String {
@@ -235,8 +253,10 @@ struct WallpaperAdjustmentView: View {
 
     private func selectRatio(_ option: Ratio) {
         guard !cropLocked, let current = crop else { return }
-        ratioNotice = option == .buick ? "别克大连屏仅适用于 6008×934 像素原图，其他尺寸请使用自由裁剪。" : nil
-        guard canSelect(option) else { return }
+        guard canSelect(option) else {
+            if option == .buick { showsBuickSizeWarning = true }
+            return
+        }
         guard let units = option.units else { ratio = .free; return }
         let scale = option == .buick ? 1 : min(Int(pixels.width) / units.width, Int(pixels.height) / units.height)
         guard scale > 0 else { return }

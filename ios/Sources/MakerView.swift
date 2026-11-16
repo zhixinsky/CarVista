@@ -139,7 +139,7 @@ struct ComposeWallpaperView: View {
                     .id("currentWallpaper")
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("内置壁纸（别克大连屏专用）").font(.headline)
+                    Text("内置壁纸（别克专用）").font(.headline)
                     Text("点选后可直接应用到 CarPlay。").font(.caption).foregroundStyle(.secondary)
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack {
@@ -149,6 +149,7 @@ struct ComposeWallpaperView: View {
                                         BuiltinWallpaperPreview(wallpaper: item)
                                             .frame(width: 160, height: 44)
                                             .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
+                                            .clipShape(RoundedRectangle(cornerRadius: 10))
                                             .accessibilityHidden(true)
                                         Text(item.title).font(.caption)
                                     }.contentShape(Rectangle())

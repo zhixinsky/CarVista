@@ -142,7 +142,7 @@ struct CommonsWallpaperGalleryView: View {
                         }
                     }
                 }
-                Toggle("超宽原图（别克大连屏）", isOn: $ultrawide)
+                Toggle("超宽原图（别克大联屏）", isOn: $ultrawide)
                     .onChange(of: ultrawide) { _, _ in load(reset: true) }
                 if ultrawide {
                     Text("筛选宽度 ≥ 2560 像素、宽高比 ≥ 3.5:1 的原图。别克预设仅适用于 6008×934 原图，其他尺寸请使用自由裁剪。")
