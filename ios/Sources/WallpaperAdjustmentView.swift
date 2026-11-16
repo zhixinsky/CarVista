@@ -44,6 +44,8 @@ struct WallpaperAdjustmentView: View {
     @State private var ratio: Ratio = .free
     @State private var showsRatios = false
     @State private var frameDragStart: WallpaperPixelCrop?
+    @State private var pinchStart: Double?
+    @State private var showsFineControls = false
 
     var body: some View {
         NavigationStack {
@@ -64,6 +66,7 @@ struct WallpaperAdjustmentView: View {
                         Slider(value: $zoom, in: 1...6).accessibilityLabel("预览缩放")
                         Button("全图") { zoom = 1 }.disabled(zoom == 1)
                     }.font(.subheadline)
+                    if showsFineControls {
                     HStack(spacing: 6) {
                         Picker("微调边线", selection: Binding(get: { selected }, set: { edge in
                             selected = edge
@@ -74,7 +77,12 @@ struct WallpaperAdjustmentView: View {
                         triangle(-1)
                         triangle(1)
                     }
-                    Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素 · \(panning ? "拖动查看大图" : ratio == .free ? "拖动边线，三角微调 1 像素" : "拖动亮色区域移动裁剪框")")
+                    }
+                    HStack {
+                        Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素 · \(panning ? "拖动查看大图" : "拖动裁剪框，双指放大")")
+                        Spacer()
+                        Button(showsFineControls ? "收起微调" : "逐像素微调") { showsFineControls.toggle() }
+                    }
                         .font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
             }
@@ -209,6 +217,11 @@ struct WallpaperAdjustmentView: View {
         .frame(width: viewportSize.width, height: viewportSize.height)
         .clipped()
         .contentShape(Rectangle())
+        .simultaneousGesture(MagnifyGesture().onChanged { value in
+            if pinchStart == nil { pinchStart = zoom }
+            guard let pinchStart else { return }
+            zoom = min(6, max(1, pinchStart * Double(value.magnification)))
+        }.onEnded { _ in pinchStart = nil })
     }
 
     private func clampedCenter(_ point: CGPoint, image: CGSize, viewport: CGSize) -> CGPoint {
@@ -237,7 +250,7 @@ struct WallpaperAdjustmentView: View {
                 path.addRect(CGRect(origin: .zero, size: size))
                 path.addRect(rect)
             }.fill(.black.opacity(0.65), style: FillStyle(eoFill: true)).allowsHitTesting(false)
-            if ratio != .free {
+            if rect.width > 0, rect.height > 0 {
                 Rectangle()
                     .strokeBorder(.yellow, lineWidth: 2)
                     .background(Color.clear)
@@ -245,12 +258,14 @@ struct WallpaperAdjustmentView: View {
                     .contentShape(Rectangle())
                     .position(x: rect.midX, y: rect.midY)
                     .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named("crop")).onChanged { value in
+                        guard pinchStart == nil else { return }
                         if frameDragStart == nil { frameDragStart = self.crop }
                         guard let start = frameDragStart else { return }
                         translate(start, x: Int((value.translation.width / xScale).rounded()),
                                   y: Int((value.translation.height / yScale).rounded()))
                     }.onEnded { _ in frameDragStart = nil })
-            } else {
+            }
+            if ratio == .free {
                 ForEach(Edge.allCases, id: \.self) { edge in
                     let scale = edge.vertical ? xScale : yScale
                     let limit = edge.vertical ? size.width : size.height
@@ -267,7 +282,7 @@ struct WallpaperAdjustmentView: View {
                         .contentShape(Rectangle())
                         .position(x: edge.vertical ? hitCenter : size.width / 2, y: edge.vertical ? size.height / 2 : hitCenter)
                         .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named("crop")).onChanged { value in
-                            guard scale > 0 else { return }
+                            guard scale > 0, pinchStart == nil else { return }
                             if dragStart == nil {
                                 selected = edge
                                 dragStart = self.crop?[keyPath: edge.coordinate]

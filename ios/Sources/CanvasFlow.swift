@@ -50,7 +50,7 @@ struct CanvasHomeView: View {
     var body: some View {
         TabView(selection: $tab) {
             NavigationStack(path: $wallpaperPath) {
-                ComposeWallpaperView(galleryImport: $galleryImport) { wallpaperPath.append($0) }
+                ComposeWallpaperView(galleryImport: $galleryImport, openGallery: { tab = .gallery }) { wallpaperPath.append($0) }
                     .navigationDestination(for: WallpaperRoute.self) { destination in
                         switch destination {
                         case .history: CanvasHistoryView()
@@ -186,19 +186,27 @@ struct ApplyWallpaperView: View {
     let entries: [SavedWallpaper]
     @State private var selected: [WallpaperTarget] = []
     @State private var confirmation = false
-    @State private var finished = false
+    @State private var completed: Int?
+    @State private var targetName = ""
+    @State private var resultMessage = ""
+    private var finished: Bool { completed == selected.count && !selected.isEmpty }
     private var modes: Set<String> { Set(entries.map(\.mode)) }
     var body: some View {
         List {
             Section {
-                Text(finished ? model.message : "选择要替换的内置壁纸。原壁纸会自动备份。")
-                if !finished { Text("直接写入已保存的 CPBitmap，不按旧缓存尺寸缩放、裁剪或补边。车机如何显示由系统决定。").font(.caption).foregroundStyle(.secondary) }
+                if let completed {
+                    Label(finished ? "已写入并备份，待车机刷新" : completed == 0 ? "写入失败" : "部分壁纸已写入",
+                          systemImage: finished ? "checkmark.circle" : "exclamationmark.triangle")
+                        .font(.headline)
+                    Text(resultMessage).font(.subheadline)
+                } else {
+                    Text("选择要替换的车机壁纸。原壁纸会自动备份。")
+                }
                 if model.busy { ProgressView("正在处理，请保持应用在前台…") }
             }
             if finished {
                 Section {
-                    WallpaperRefreshButton()
-                    Text("写入成功不代表屏幕已经刷新。若仍显示旧图，请重启 iPhone 后重新连接。").font(.caption).foregroundStyle(.secondary)
+                    Text("请在车机确认新图。若仍显示旧图，请重启 iPhone 后重新连接 CarPlay。").font(.caption).foregroundStyle(.secondary)
                 }
             }
             if !finished {
@@ -206,7 +214,7 @@ struct ApplyWallpaperView: View {
                     Section {
                         if !model.targets.isEmpty { Text("找到缓存，但当前格式或尺寸无法替换。请重新查找，或在设置中导出诊断报告。") }
                         Text(model.group.isEmpty ? "当前安装缺少车机访问权限，需重新签名。已保存的壁纸不受影响。" : model.message)
-                        Button("重新查找") { model.scan(deep: false) }.disabled(model.busy || model.group.isEmpty)
+                        Button(completed == nil ? "重新查找" : "重新查找并选择目标") { model.scan(deep: false) }.disabled(model.busy || model.group.isEmpty)
                         Button("继续查找（首次可能需要几分钟）") { model.scan(deep: true) }.disabled(model.busy || model.group.isEmpty)
                         if model.busy { Button("停止查找") { CCEngine.cancelScan() } }
                     }
@@ -214,11 +222,14 @@ struct ApplyWallpaperView: View {
                 ForEach(targetFamilies(model.targets.filter(\.editable))) { family in
                     Section(family.title) {
                         let matching = family.targets.filter { modes.contains($0.mode) }
-                        if modes.count > 1 && Set(matching.map(\.mode)) == modes {
-                            Button("同时应用到深色与浅色") { selected = matching; confirmation = true }.disabled(model.busy)
+                        if let target = family.targets.first {
+                            ApplyTargetPreview(target: target)
                         }
-                        ForEach(family.targets) { target in
-                            Button("应用到\(target.mode) · \(target.width) × \(target.height)") { selected = [target]; confirmation = true }.disabled(model.busy || (entries.count > 1 && !modes.contains(target.mode)))
+                        if modes.count > 1 && Set(matching.map(\.mode)) == modes {
+                            Button("替换深色与浅色") { choose(matching, name: family.title) }.disabled(model.busy)
+                            DisclosureGroup("单独替换") { variantButtons(family) }
+                        } else {
+                            variantButtons(family)
                         }
                     }
                 }
@@ -227,9 +238,64 @@ struct ApplyWallpaperView: View {
             .toolbar { Button(finished ? "完成" : "关闭") { dismiss() }.disabled(model.busy) }
             .interactiveDismissDisabled(model.busy)
             .task { if model.targets.isEmpty && !model.busy && !model.group.isEmpty { model.scan(deep: false) } }
-            .confirmationDialog("备份并按原尺寸直接替换 \(selected.count) 个文件？", isPresented: $confirmation, titleVisibility: .visible) {
-                Button("原尺寸直接替换") { model.applyBatch(entries: entries, targets: selected) { finished = true } }
+            .sheet(isPresented: $confirmation) {
+                NavigationStack {
+                    List {
+                        if let entry = entries.first, let image = UIImage(contentsOfFile: entry.preview.path) {
+                            Section("新壁纸") { Image(uiImage: image).resizable().scaledToFit() }
+                        }
+                        Section("将替换「\(targetName)」") {
+                            if let target = selected.first { ApplyTargetPreview(target: target) }
+                            Text(selected.map(\.mode).joined(separator: "、"))
+                            Text("应用前会自动备份原壁纸。").font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }.navigationTitle("确认替换").navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) { Button("取消") { confirmation = false } }
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("确认替换") {
+                                    confirmation = false
+                                    completed = nil
+                                    model.applyBatch(entries: entries, targets: selected) { count in
+                                        completed = count
+                                        resultMessage = model.message
+                                    }
+                                }.disabled(model.busy)
+                            }
+                        }
+                }
             }
+    }
+
+    private func choose(_ targets: [WallpaperTarget], name: String) {
+        selected = targets
+        targetName = name
+        confirmation = true
+    }
+
+    private func variantButtons(_ family: TargetFamily) -> some View {
+        ForEach(family.targets) { target in
+            Button("替换\(target.mode)壁纸") { choose([target], name: family.title) }
+                .disabled(model.busy || (entries.count > 1 && !modes.contains(target.mode)))
+        }
+    }
+}
+
+private struct ApplyTargetPreview: View {
+    let target: WallpaperTarget
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image { Image(uiImage: image).resizable().scaledToFit() }
+            else { Label("现有壁纸预览", systemImage: "photo").font(.caption).foregroundStyle(.secondary) }
+        }
+        .frame(maxHeight: 120)
+        .task(id: target.id) {
+            let path = target.id
+            let preview = await Task.detached { CCEngine.preview(path) }.value
+            if !Task.isCancelled { image = preview }
+        }
     }
 }
 
@@ -285,7 +351,7 @@ struct CanvasGuideView: View {
     private let steps = [
         ("生成车机壁纸缓存", "停车后，在车机 CarPlay 的“设置 → 壁纸”中切换几张内置图片壁纸。不同系统的排列可能不同。"),
         ("选择照片", "在“壁纸”里选相册照片或内置壁纸，也可在“图库”里选择 Bing 图片。需要裁剪时点“调整”。"),
-        ("选择目标并应用", "点“应用当前照片”即可生成文件并选择替换目标，原文件会自动备份。历史记录和壁纸缓存位于“壁纸”右上角。"),
+        ("选择目标并应用", "点“应用到 CarPlay”即可生成文件并选择替换目标，原文件会自动备份。历史记录和壁纸缓存位于“壁纸”右上角。"),
         ("注销", "替换后点“注销”，尝试重载系统界面，返回桌面后重新连接车机检查；无效时手动重启 iPhone。需要还原时，在缓存页进入“备份与恢复”。")]
     var body: some View {
         NavigationStack {

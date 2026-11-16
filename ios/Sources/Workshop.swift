@@ -192,36 +192,36 @@ final class WorkshopModel: ObservableObject {
         }
     }
 
-    func applyBatch(entries: [SavedWallpaper], targets: [WallpaperTarget], completion: @escaping () -> Void) {
+    func applyBatch(entries: [SavedWallpaper], targets: [WallpaperTarget], completion: @escaping (Int) -> Void) {
         guard !busy else { return }
         guard !targets.isEmpty, targets.allSatisfy(\.editable),
               Set(targets.map(\.id)).count == targets.count, !entries.isEmpty else {
-            message = "所选缓存不可替换，请重新查找。"; completion(); return
+            message = "所选缓存不可替换，请重新查找。"; completion(0); return
         }
         guard targets.allSatisfy({ target in entries.count == 1 || entries.contains(where: { $0.mode == target.mode }) }) else {
-            message = "没有对应外观的壁纸，请重新选择。"; completion(); return
+            message = "没有对应外观的壁纸，请重新选择。"; completion(0); return
         }
         message = "正在备份并应用壁纸…"
         work({
             var completed = 0
             for target in targets {
                 guard let entry = entries.first(where: { $0.mode == target.mode }) ?? (entries.count == 1 ? entries.first : nil) else {
-                    return ["ok": false, "message": "已应用 \(completed)/\(targets.count) 个。没有对应外观的壁纸，请重新选择。"]
+                    return ["completed": completed, "message": "已应用 \(completed)/\(targets.count) 个。没有对应外观的壁纸，请重新选择。"]
                 }
                 // Write the saved CPBitmap bytes directly; never resize to the old cache.
                 let source = entry.bitmap.path
                 let result = CCEngine.apply(target.raw, source: source) as? [String: Any] ?? [:]
                 if result["ok"] as? Bool != true {
-                    return ["ok": false, "message": "已应用 \(completed)/\(targets.count) 个。\(result["message"] as? String ?? "写入失败")。已完成的项目可在备份与恢复中还原。"]
+                    return ["completed": completed, "message": "已应用 \(completed)/\(targets.count) 个。\(result["message"] as? String ?? "写入失败")。已完成的项目可在备份与恢复中还原。"]
                 }
                 completed += 1
             }
-            return ["ok": true, "message": "\(completed) 个壁纸已应用，原文件已备份。请重启 iPhone 后重新连接 CarPlay 检查效果。"]
+            return ["completed": completed, "message": "\(completed) 张壁纸已写入，原文件已备份。请在车机确认显示效果。"]
         }) { result in
             self.message = result["message"] as? String ?? "应用失败"
             self.targets = []
             self.makeReport()
-            completion()
+            completion(result["completed"] as? Int ?? 0)
         }
     }
 

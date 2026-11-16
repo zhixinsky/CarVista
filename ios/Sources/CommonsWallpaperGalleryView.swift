@@ -161,7 +161,7 @@ struct CommonsWallpaperGalleryView: View {
                 if loading {
                     ProgressView("正在查找…")
                 } else if failed {
-                    Button("加载失败，重试") { load(reset: initialRequest) }.buttonStyle(.bordered)
+                    Button("无法连接 Commons，重试") { load(reset: initialRequest) }.buttonStyle(.bordered)
                 } else {
                     if photos.isEmpty {
                         Text(next == nil ? "没有符合条件的图片，试试其他主题。" : "这批图片没有符合条件的结果，可以继续查找。")

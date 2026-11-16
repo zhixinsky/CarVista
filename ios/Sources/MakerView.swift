@@ -6,6 +6,7 @@ struct ComposeWallpaperView: View {
     @EnvironmentObject var model: WorkshopModel
     @Binding var galleryImport: GalleryImport?
     private let openTool: ((WallpaperRoute) -> Void)?
+    private let openGallery: (() -> Void)?
     @State private var tool: WallpaperRoute?
     @State private var photos: [MakerPhoto] = []
     @State private var selection: PhotosPickerItem?
@@ -27,9 +28,10 @@ struct ComposeWallpaperView: View {
         let turns = (((photo?.adjustment.turns ?? 0) % 4) + 4) % 4
         return turns % 2 == 0 ? sourcePixels : CGSize(width: sourcePixels.height, height: sourcePixels.width)
     }
-    init(galleryImport: Binding<GalleryImport?> = .constant(nil), openTool: ((WallpaperRoute) -> Void)? = nil) {
+    init(galleryImport: Binding<GalleryImport?> = .constant(nil), openGallery: (() -> Void)? = nil, openTool: ((WallpaperRoute) -> Void)? = nil) {
         _galleryImport = galleryImport
         self.openTool = openTool
+        self.openGallery = openGallery
     }
     private var outputLabel: String {
         guard outputSize.width > 0, outputSize.height > 0 else { return "读取原图尺寸…" }
@@ -39,6 +41,7 @@ struct ComposeWallpaperView: View {
     private var renderKey: String { "\(photo?.id.uuidString ?? "empty")-\(String(describing: photo?.adjustment))-\(outputLabel)" }
 
     var body: some View {
+        ScrollViewReader { scroll in
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 HStack(spacing: 14) {
@@ -51,7 +54,7 @@ struct ComposeWallpaperView: View {
                 VStack(spacing: 14) {
                     Group {
                         if let preview { Image(uiImage: preview).resizable().scaledToFit() }
-                        else if photos.isEmpty { ContentUnavailableView("选一张喜欢的照片", systemImage: "photo.on.rectangle.angled", description: Text("先选照片，再选适合车机的尺寸。")) }
+                        else if photos.isEmpty { Label("选择一张壁纸", systemImage: "photo.on.rectangle.angled").font(.headline).padding(.vertical, 12) }
                         else { ProgressView("正在生成预览…").frame(height: 160) }
                     }.frame(maxWidth: .infinity).clipShape(RoundedRectangle(cornerRadius: 18))
                         .overlay(alignment: .topTrailing) { if previewing && preview != nil { ProgressView().padding(12).background(.regularMaterial, in: Capsule()) } }
@@ -69,31 +72,41 @@ struct ComposeWallpaperView: View {
                             }
                         }
                     }
-                    HStack {
-                        Text("已选 \(photos.count) 张").font(.subheadline.bold())
-                        Spacer()
-                        Text("输出 \(outputLabel)").font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("maker.output")
+                    if let photo {
+                        HStack {
+                            Text(photo.sourceName ?? "当前照片").font(.subheadline.bold())
+                            Spacer()
+                            Text("输出 \(outputLabel)").font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("maker.output")
+                        }
                     }
                     HStack(spacing: 10) {
                         PhotosPicker(selection: $selection, matching: .images) {
-                            Label(photos.isEmpty ? "选择照片" : "更换照片", systemImage: "photo.badge.plus").frame(maxWidth: .infinity)
+                            Label(photos.isEmpty ? "相册" : "更换照片", systemImage: "photo.badge.plus").frame(maxWidth: .infinity)
                         }.buttonStyle(.borderedProminent).disabled(locked).accessibilityIdentifier("maker.select")
-                        Button("调整") { adjusting = true }.buttonStyle(.bordered).disabled(photo == nil || locked)
-                            .accessibilityIdentifier("maker.adjust")
-                        Button(role: .destructive) { removeCurrent() } label: { Image(systemName: "trash") }
-                            .buttonStyle(.bordered).disabled(photo == nil || locked).accessibilityLabel("移除当前照片")
+                        if photo != nil {
+                            Button("调整") { adjusting = true }.buttonStyle(.bordered).disabled(locked)
+                                .accessibilityIdentifier("maker.adjust")
+                            Button(role: .destructive) { removeCurrent() } label: { Image(systemName: "trash") }
+                                .buttonStyle(.bordered).disabled(locked).accessibilityLabel("移除当前照片")
+                        } else {
+                            Button("内置壁纸") { withAnimation { scroll.scrollTo("builtins", anchor: .top) } }.buttonStyle(.bordered)
+                            if let openGallery { Button("在线图库", action: openGallery).buttonStyle(.bordered) }
+                        }
                     }
                     if loading { ProgressView("正在导入照片…") }
-                    Button { prepareCurrentWallpaper() } label: {
-                        Label("应用当前照片", systemImage: "car.side.fill").frame(maxWidth: .infinity)
-                    }.buttonStyle(.borderedProminent).disabled(photo == nil || locked)
+                    if photo != nil {
+                        Button { prepareCurrentWallpaper() } label: {
+                            Label("应用到 CarPlay", systemImage: "car.side.fill").frame(maxWidth: .infinity)
+                        }.buttonStyle(.borderedProminent).disabled(locked)
+                    }
                     if let problem { Text(problem).font(.subheadline).foregroundStyle(.red) }
                 }.padding(16).frame(maxWidth: .infinity)
                     .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
+                    .id("currentWallpaper")
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("内置壁纸（别克大连屏专用）").font(.headline)
-                    Text("点选后可直接应用当前照片。").font(.caption).foregroundStyle(.secondary)
+                    Text("点选后可直接应用到 CarPlay。").font(.caption).foregroundStyle(.secondary)
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack {
                             ForEach(BuiltinWallpaper.all) { item in
@@ -111,6 +124,7 @@ struct ComposeWallpaperView: View {
                     }
                 }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
                     .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
+                    .id("builtins")
                 VStack(alignment: .leading, spacing: 16) {
                     Text("CarPlay").font(.headline)
                     Label(model.group.isEmpty ? "本地制作可用，车机访问需有效签名" : "签名组已提供", systemImage: "checkmark.shield")
@@ -124,6 +138,10 @@ struct ComposeWallpaperView: View {
                     .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
             }.padding(20).frame(maxWidth: 680).frame(maxWidth: .infinity)
         }.background(Color(uiColor: .systemGroupedBackground)).tint(CanvasTheme.accent)
+            .onChange(of: photo?.id) { _, id in
+                if id != nil { withAnimation { scroll.scrollTo("currentWallpaper", anchor: .top) } }
+            }
+        }
             .navigationTitle("壁纸").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -174,7 +192,8 @@ struct ComposeWallpaperView: View {
             if !Task.isCancelled, galleryImport?.id == request.id { galleryImport = nil }
         }
         do {
-            let incoming = try await Task.detached { try MakerDraft.importPhoto(data: request.data) }.value
+            var incoming = try await Task.detached { try MakerDraft.importPhoto(data: request.data) }.value
+            incoming.sourceName = "在线图库"
             guard !Task.isCancelled else {
                 try? FileManager.default.removeItem(at: incoming.url)
                 return
@@ -191,9 +210,10 @@ struct ComposeWallpaperView: View {
         Task {
             defer { loading = false }
             do {
-                let incoming = try await Task.detached {
+                var incoming = try await Task.detached {
                     try MakerDraft.importPhoto(data: Data(contentsOf: wallpaper.originalURL()))
                 }.value
+                incoming.sourceName = "内置\(wallpaper.title)"
                 try replaceCurrent(with: incoming)
             } catch {
                 problem = "导入内置壁纸失败：\(error.localizedDescription)"
@@ -261,7 +281,8 @@ struct ComposeWallpaperView: View {
         do {
             guard let data = try await item.loadTransferable(type: Data.self) else { throw CocoaError(.fileReadCorruptFile) }
             try Task.checkCancellation()
-            let incoming = try await Task.detached(priority: .userInitiated) { try MakerDraft.importPhoto(data: data) }.value
+            var incoming = try await Task.detached(priority: .userInitiated) { try MakerDraft.importPhoto(data: data) }.value
+            incoming.sourceName = "相册照片"
             if Task.isCancelled {
                 try? FileManager.default.removeItem(at: incoming.url)
                 return

@@ -5,6 +5,7 @@ import ImageIO
 struct MakerPhoto: Identifiable, Codable, Equatable {
     let id: UUID
     var adjustment = WallpaperAdjustment()
+    var sourceName: String?
     var url: URL { MakerDraft.directory.appendingPathComponent("\(id).source") }
 }
 

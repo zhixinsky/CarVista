@@ -71,14 +71,22 @@ struct WallpaperGalleryView: View {
     private enum Source: String, CaseIterable { case bing = "Bing 每日精选", commons = "Commons 主题找图" }
     let use: (Data) -> Void
     @State private var source: Source = .bing
+    @State private var openedCommons = false
 
     var body: some View {
-        Group {
-            switch source {
-            case .bing: BingWallpaperGalleryView(use: use)
-            case .commons: CommonsWallpaperGalleryView(use: use)
+        ZStack {
+            BingWallpaperGalleryView(use: use)
+                .opacity(source == .bing ? 1 : 0)
+                .allowsHitTesting(source == .bing)
+                .accessibilityHidden(source != .bing)
+            if openedCommons || source == .commons {
+                CommonsWallpaperGalleryView(use: use)
+                    .opacity(source == .commons ? 1 : 0)
+                    .allowsHitTesting(source == .commons)
+                    .accessibilityHidden(source != .commons)
             }
         }
+        .onChange(of: source) { _, value in if value == .commons { openedCommons = true } }
         .safeAreaInset(edge: .top, spacing: 0) {
             Picker("图库来源", selection: $source) {
                 ForEach(Source.allCases, id: \.self) { Text($0.rawValue).tag($0) }
@@ -236,10 +244,14 @@ struct GalleryImage: View {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .success(let image): image.resizable().aspectRatio(contentMode: mode)
-                case .failure: Image(systemName: "photo").foregroundStyle(.secondary)
-                default: ProgressView()
+                case .failure:
+                    Label("图片加载失败", systemImage: "photo").font(.caption).foregroundStyle(.secondary)
+                case .empty:
+                    if url == nil { Label("暂无预览", systemImage: "photo").font(.caption).foregroundStyle(.secondary) }
+                    else { ProgressView() }
+                @unknown default: EmptyView()
                 }
             }
-        }.clipped().accessibilityHidden(true)
+        }.clipped()
     }
 }

@@ -10,7 +10,7 @@ final class HistoryTests: XCTestCase {
             mode: "深色", preservePixels: true)
         let target = WallpaperTarget(raw: ["path": "/missing", "mode": "深色", "width": 2420, "height": 1668])
         await withCheckedContinuation { continuation in
-            model.applyBatch(entries: [entry], targets: [target]) { continuation.resume() }
+            model.applyBatch(entries: [entry], targets: [target]) { _ in continuation.resume() }
         }
         XCTAssertFalse(model.busy)
         XCTAssertTrue(model.message.contains("目标不属于"))
@@ -50,7 +50,7 @@ final class HistoryTests: XCTestCase {
         try JSONEncoder().encode(entry).write(to: metadata)
         XCTAssertFalse(WorkshopModel().history.contains { $0.id == entry.id })
         var completed = false
-        model.applyBatch(entries: [entry], targets: [WallpaperTarget(raw: ["path": "/invalid", "width": Int.max, "height": Int.max])]) { completed = true }
+        model.applyBatch(entries: [entry], targets: [WallpaperTarget(raw: ["path": "/invalid", "width": Int.max, "height": Int.max])]) { _ in completed = true }
         XCTAssertTrue(completed)
         XCTAssertFalse(model.busy)
         XCTAssertTrue(model.message.contains("不可替换"))
