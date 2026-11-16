@@ -3,12 +3,15 @@ import SwiftUI
 
 struct WallpaperAdjustmentView: View {
     private enum Ratio: String, CaseIterable {
-        case free = "自由裁剪", standard = "4:3 标准", wide = "16:9 宽屏", buick = "别克大连屏"
+        case free = "自由裁剪", standard = "4:3 标准", wide = "16:9 宽屏", ultrawide = "超宽屏", buick = "别克大连屏"
+
+        var allowsCornerResize: Bool { self != .free && self != .buick }
 
         var units: (width: Int, height: Int)? {
             switch self {
             case .free: return nil
             case .wide: return (16, 9)
+            case .ultrawide: return (87, 23)
             case .standard: return (4, 3)
             case .buick: return (3083, 815)
             }
@@ -28,6 +31,12 @@ struct WallpaperAdjustmentView: View {
         }
     }
 
+    private enum Corner: String, CaseIterable {
+        case topLeft, topRight, bottomLeft, bottomRight
+        var left: Bool { self == .topLeft || self == .bottomLeft }
+        var top: Bool { self == .topLeft || self == .topRight }
+    }
+
     @Environment(\.dismiss) private var dismiss
     let photo: MakerPhoto
     let save: (WallpaperPixelCrop) -> Void
@@ -43,7 +52,9 @@ struct WallpaperAdjustmentView: View {
     @State private var cropLocked = false
     @State private var ratio: Ratio = .free
     @State private var showsRatios = false
+    @State private var ratioNotice: String?
     @State private var frameDragStart: WallpaperPixelCrop?
+    @State private var cornerDragStart: WallpaperPixelCrop?
     @State private var showsFineControls = false
 
     var body: some View {
@@ -59,12 +70,18 @@ struct WallpaperAdjustmentView: View {
                     }
                 }
                 if let crop {
+                    if let ratioNotice {
+                        Label(ratioNotice, systemImage: "info.circle")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     HStack {
                         Button {
                             cropLocked.toggle()
                             panStart = nil
                             dragStart = nil
                             frameDragStart = nil
+                            cornerDragStart = nil
                         } label: {
                             Label(cropLocked ? "已锁定 · 解锁" : "锁定裁剪",
                                   systemImage: cropLocked ? "lock.fill" : "lock.open")
@@ -119,7 +136,7 @@ struct WallpaperAdjustmentView: View {
                     Button { showsRatios.toggle() } label: {
                         Label(ratio == .free ? "比例" : ratio.rawValue, systemImage: "aspectratio")
                     }.disabled(crop == nil || cropLocked).accessibilityIdentifier("crop.ratio")
-                    Button("还原") { showsRatios = false; ratio = .free; crop = .full(pixels); zoom = 1 }.disabled(crop == nil || cropLocked)
+                    Button("还原") { showsRatios = false; ratioNotice = nil; ratio = .free; crop = .full(pixels); zoom = 1 }.disabled(crop == nil || cropLocked)
                     Button("确定") {
                         guard let crop else { return }
                         save(crop)
@@ -155,6 +172,7 @@ struct WallpaperAdjustmentView: View {
 
     private var gestureHint: String {
         if cropLocked { return zoom > 1 ? "单指拖动查看大图" : "裁剪已锁定，可用滑杆放大" }
+        if ratio.allowsCornerResize { return "拖四角等比缩放 · 拖框内移动" }
         return "拖动裁剪框，滑杆缩放"
     }
 
@@ -181,8 +199,8 @@ struct WallpaperAdjustmentView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(ratio == option ? .isSelected : [])
-                    .disabled(!canSelect(option))
-                    .accessibilityHint(option == .buick ? "原图至少需要 3083×934 像素，底部默认预留 119 像素" : "")
+                    .disabled(option != .buick && !canSelect(option))
+                    .accessibilityHint(option == .buick ? "仅适用于 6008×934 像素原图，其他尺寸请用自由裁剪" : option == .ultrawide ? "约 3.783 比 1，可拖动四角缩放" : "")
                     if option != Ratio.allCases.last { Divider() }
                 }
             }
@@ -196,12 +214,15 @@ struct WallpaperAdjustmentView: View {
     }
 
     private func canSelect(_ option: Ratio) -> Bool {
+        if option == .buick { return pixels == CGSize(width: 6008, height: 934) }
         guard let units = option.units else { return true }
-        return Int(pixels.width) >= units.width && Int(pixels.height) >= units.height + (option == .buick ? 119 : 0)
+        return Int(pixels.width) >= units.width && Int(pixels.height) >= units.height
     }
 
     private func selectRatio(_ option: Ratio) {
-        guard !cropLocked, let current = crop, canSelect(option) else { return }
+        guard !cropLocked, let current = crop else { return }
+        ratioNotice = option == .buick ? "别克大连屏仅适用于 6008×934 像素原图，其他尺寸请使用自由裁剪。" : nil
+        guard canSelect(option) else { return }
         guard let units = option.units else { ratio = .free; return }
         let scale = option == .buick ? 1 : min(Int(pixels.width) / units.width, Int(pixels.height) / units.height)
         guard scale > 0 else { return }
@@ -337,8 +358,49 @@ struct WallpaperAdjustmentView: View {
                         .accessibilityHidden(true)
                 }
             }
+            if !cropLocked, ratio.allowsCornerResize, let units = ratio.units {
+                ForEach(Corner.allCases, id: \.self) { corner in
+                    let x = corner.left ? rect.minX : rect.maxX
+                    let y = corner.top ? rect.minY : rect.maxY
+                    Circle().fill(.yellow)
+                        .overlay { Circle().strokeBorder(.black.opacity(0.65), lineWidth: 1) }
+                        .frame(width: 12, height: 12)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                        .position(x: x, y: y)
+                        .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named("crop")).onChanged { value in
+                            guard !cropLocked, xScale > 0, yScale > 0 else { return }
+                            if cornerDragStart == nil { cornerDragStart = self.crop }
+                            guard let start = cornerDragStart else { return }
+                            resize(start, corner: corner, units: units,
+                                   dx: value.translation.width / xScale, dy: value.translation.height / yScale)
+                        }.onEnded { _ in cornerDragStart = nil })
+                        .accessibilityHidden(true)
+                }
+            }
         }
         .coordinateSpace(name: "crop")
+    }
+
+    private func resize(_ start: WallpaperPixelCrop, corner: Corner, units: (width: Int, height: Int), dx: CGFloat, dy: CGFloat) {
+        let anchorX = corner.left ? start.right : start.left
+        let anchorY = corner.top ? start.bottom : start.top
+        let availableWidth = corner.left ? anchorX : Int(pixels.width) - anchorX
+        let availableHeight = corner.top ? anchorY : Int(pixels.height) - anchorY
+        let largest = min(availableWidth / units.width, availableHeight / units.height)
+        guard largest >= 1 else { return }
+        let desiredWidth = start.rect.width + (corner.left ? -dx : dx)
+        let desiredHeight = start.rect.height + (corner.top ? -dy : dy)
+        let unitWidth = CGFloat(units.width)
+        let unitHeight = CGFloat(units.height)
+        let projected = (desiredWidth * unitWidth + desiredHeight * unitHeight) / (unitWidth * unitWidth + unitHeight * unitHeight)
+        let count = Int(min(CGFloat(largest), max(1, projected)).rounded())
+        let width = units.width * count
+        let height = units.height * count
+        crop = WallpaperPixelCrop(left: corner.left ? anchorX - width : anchorX,
+                                  top: corner.top ? anchorY - height : anchorY,
+                                  right: corner.left ? anchorX : anchorX + width,
+                                  bottom: corner.top ? anchorY : anchorY + height)
     }
 
     private func triangle(_ delta: Int) -> some View {
