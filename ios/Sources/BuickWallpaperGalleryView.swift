@@ -28,7 +28,7 @@ struct BuickWallpaperGalleryView: View {
                 Label("别克大联屏用户请自行裁剪尺寸", systemImage: "crop")
                     .font(.subheadline).foregroundStyle(.secondary)
                 LazyVStack(alignment: .leading, spacing: 16) {
-                    ForEach((1...15).map { Wallpaper(id: $0) }) { wallpaper in
+                    ForEach((1...16).map { Wallpaper(id: $0) }) { wallpaper in
                         Button { error = nil; selection = wallpaper } label: {
                             VStack(alignment: .leading, spacing: 6) {
                                 thumbnail(wallpaper)
