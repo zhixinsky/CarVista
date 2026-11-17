@@ -231,7 +231,9 @@ final class WorkshopModel: ObservableObject {
                 let source = entry.bitmap.path
                 let result = CCEngine.apply(target.raw, source: source) as? [String: Any] ?? [:]
                 if result["ok"] as? Bool != true {
-                    return ["completed": completed, "message": "已应用 \(completed)/\(targets.count) 个。\(result["message"] as? String ?? "写入失败")。已完成的项目可在备份与恢复中还原。"]
+                    let failure = result["message"] as? String ?? "写入失败"
+                    let recovery = completed > 0 ? "。已完成的项目可在备份与恢复中还原。" : ""
+                    return ["completed": completed, "message": "已应用 \(completed)/\(targets.count) 个。\(failure)\(recovery)"]
                 }
                 completed += 1
             }

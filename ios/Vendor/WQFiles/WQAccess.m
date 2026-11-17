@@ -855,12 +855,25 @@ static BOOL wq_write_checked(NSString *path, NSData *data, NSDictionary *expecte
 {
     if (savedVersion) *savedVersion = nil;
     WQMutation mutation;
-    if (!wq_mutation_open(path, expected, &mutation, O_RDWR, errorText)) return NO;
+    NSString *detail = nil;
+    if (!wq_mutation_open(path, expected, &mutation, O_RDWR, &detail)) {
+        if (errorText) *errorText = [NSString stringWithFormat:@"准备写入失败（未开始备份）：%@", detail ?: @"无错误详情"];
+        return NO;
+    }
     NSString *backup = nil;
-    if (!wq_mutation_backup(path, &mutation, &backup, errorText)) { wq_mutation_close(&mutation); return NO; }
+    if (!wq_mutation_backup(path, &mutation, &backup, &detail)) {
+        if (errorText) *errorText = [NSString stringWithFormat:@"备份阶段失败（%@）：%@",
+                                    backup.length ? @"已保留备份" : @"备份未完成", detail ?: @"无错误详情"];
+        wq_mutation_close(&mutation);
+        return NO;
+    }
     BOOL ok = lseek(mutation.fd, 0, SEEK_SET) >= 0 && ftruncate(mutation.fd, 0) == 0 && wq_write_all(mutation.fd, data);
     NSString *failure = ok ? nil : wq_errno(errno);
-    return wq_mutation_finish(path, &mutation, backup, ok, failure, errorText, savedVersion, verify ? data : nil, nil);
+    BOOL finished = wq_mutation_finish(path, &mutation, backup, ok, failure, &detail, savedVersion, verify ? data : nil, nil);
+    if (!finished && errorText) {
+        *errorText = [NSString stringWithFormat:@"写入阶段失败（已保留备份）：%@", detail ?: @"无错误详情"];
+    }
+    return finished;
 }
 
 BOOL wq_write_if_unchanged_get_version(NSString *path, NSData *data, NSDictionary *expected,
