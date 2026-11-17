@@ -31,7 +31,19 @@ final class WorkshopModel: ObservableObject {
     @Published var reportURL: URL?
     @Published var generationProgress = 0.0
     @Published var lastDetectedWallpaperSize: CGSize?
+    @Published private(set) var lastScanSummary: String?
+    @Published private(set) var lastApplySummary: String?
     let group = CCEngine.appGroup()
+    var appGroupStatus: String {
+        guard !group.isEmpty else { return "未声明" }
+        return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) == nil
+            ? "已声明，系统未返回容器" : "已声明，系统已返回容器"
+    }
+    var appVersion: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "未知"
+        return "\(version)（\(build)）"
+    }
     nonisolated static var library: URL {
         WallpaperStorage.library
     }
@@ -82,6 +94,9 @@ final class WorkshopModel: ObservableObject {
             self.issues = result["issues"] as? [String] ?? []
             self.root = result["root"] as? String ?? ""
             self.message = result["message"] as? String ?? "扫描失败"
+            let editable = self.targets.filter(\.editable).count
+            self.lastScanSummary = self.targets.isEmpty
+                ? self.message : "找到 \(self.targets.count) 个，格式与尺寸符合要求 \(editable) 个"
             self.makeReport()
         }
     }
@@ -110,6 +125,7 @@ final class WorkshopModel: ObservableObject {
         message = "正在备份、写入并校验…"
         work({ CCEngine.apply(target.raw, source: entry.bitmap.path) as? [String: Any] ?? [:] }) { result in
             self.message = result["message"] as? String ?? "写入失败"
+            self.lastApplySummary = self.message
             // Snapshots are invalid after a mutation attempt; require a rescan.
             self.targets = []
             self.makeReport()
@@ -131,7 +147,10 @@ final class WorkshopModel: ObservableObject {
             let object: [String: Any] = ["date": ISO8601DateFormatter().string(from: Date()),
                 "system": UIDevice.current.systemVersion, "model": UIDevice.current.model,
                 "appGroup": group, "root": root, "message": message, "issues": issues,
-                "targets": targets.map(\.raw), "log": CCEngine.logs()]
+                "targets": targets.map(\.raw), "log": CCEngine.logs(),
+                "appVersion": appVersion, "appGroupStatus": appGroupStatus,
+                "lastScan": lastScanSummary ?? "本次启动尚未查找",
+                "lastApply": lastApplySummary ?? "本次启动尚未应用"]
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("CarVista-\(UUID().uuidString).json")
             try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
             reportURL = url
@@ -219,6 +238,7 @@ final class WorkshopModel: ObservableObject {
             return ["completed": completed, "message": "\(completed) 张壁纸已写入，原文件已备份。请在车机确认显示效果。"]
         }) { result in
             self.message = result["message"] as? String ?? "应用失败"
+            self.lastApplySummary = self.message
             self.targets = []
             self.makeReport()
             completion(result["completed"] as? Int ?? 0)
@@ -448,6 +468,22 @@ struct HelpView: View {
     @EnvironmentObject var model: WorkshopModel
     var body: some View {
         List {
+            Section {
+                LabeledContent("系统", value: "iOS \(UIDevice.current.systemVersion)")
+                LabeledContent("CarVista", value: model.appVersion)
+                diagnosticRow("签名容器", result: model.appGroupStatus)
+                diagnosticRow("最近查找", result: model.lastScanSummary ?? "本次启动尚未查找")
+                diagnosticRow("最近应用", result: model.lastApplySummary ?? "本次启动尚未应用")
+            } header: {
+                Text("诊断摘要")
+            } footer: {
+                Text("遇到应用失败时，可直接截取这一区域。查找和应用结果会保留到本次启动结束。")
+            }
+            Section("报告") {
+                Button("生成诊断报告") { model.makeReport() }.disabled(model.busy)
+                if let reportURL = model.reportURL { ShareLink("导出报告", item: reportURL) }
+                Text("报告含目录路径与访问日志，分享前可自行查看。")
+            }
             Section("测试步骤") {
                 Text("1. 签名时保留有效 App Group，再安装。")
                 Text("2. 停车后，在车机 CarPlay 设置中切换几张内置图片壁纸，让系统生成缓存。")
@@ -456,15 +492,9 @@ struct HelpView: View {
                 Text("5. 不满意可在恢复页恢复备份，再重启 iPhone 并连接 CarPlay 检查。")
             }
             Section("签名与兼容性") {
-                Text("系统：\(UIDevice.current.systemVersion)")
                 Text("App Group：\(model.group.isEmpty ? "未提供" : model.group)").textSelection(.enabled)
                 Text("需要签名工具实际创建并授予 App Group，例如支持该功能的 AltStore / SideStore。只有 entitlement 字符串不代表已获得权限。企业通配符描述文件通常不支持此功能。")
                 Text("本包使用公开的 worse_query 访问方案。iOS 27.2 和车机效果尚待实测；若系统拒绝访问或格式无法识别，会显示错误并停止写入。")
-            }
-            Section("日志") {
-                Button("生成诊断报告") { model.makeReport() }.disabled(model.busy)
-                if let reportURL = model.reportURL { ShareLink("导出报告", item: reportURL) }
-                Text("报告含目录路径与访问日志，分享前可自行查看。")
             }
             Section("开源") {
                 Link("CarVista源码", destination: URL(string: "https://github.com/zhixinsky/CarVista")!)
@@ -473,6 +503,16 @@ struct HelpView: View {
                 Text("GPL-3.0-or-later。访问模块版权属于原作者。")
                 if let license = Bundle.main.url(forResource: "LICENSE", withExtension: nil) { ShareLink("查看 / 导出 GPL 许可证", item: license) }
             }
-        }.navigationTitle("使用说明")
+        }
+        .navigationTitle("安装检查与诊断")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func diagnosticRow(_ title: String, result: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.subheadline.weight(.semibold))
+            Text(result).font(.subheadline).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
