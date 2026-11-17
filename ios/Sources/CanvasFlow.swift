@@ -387,6 +387,7 @@ struct CanvasSettingsView: View {
                 WallpaperRefreshButton()
                 Text("结束当前连接并重新进入车机，用来让新壁纸生效。").font(.caption).foregroundStyle(.secondary)
                 Button { guide = true } label: { Label("使用指南", systemImage: "book") }
+                NavigationLink { SupportedDevicesView() } label: { Label("支持机型", systemImage: "iphone") }
                 NavigationLink { BackupsView() } label: { Label("备份与恢复", systemImage: "arrow.uturn.backward") }
                 NavigationLink { HelpView() } label: { Label("安装检查与诊断", systemImage: "stethoscope") }
             }
@@ -398,5 +399,34 @@ struct CanvasSettingsView: View {
             }
         }.navigationTitle("设置").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .sheet(isPresented: $guide) { CanvasGuideView() }
+    }
+}
+
+private struct SupportedDevicesView: View {
+    var body: some View {
+        List {
+            Section("CarVista 壁纸替换反馈") {
+                LabeledContent("iPhone 16 Pro Max", value: "iOS 27.2")
+                Text("旧版有成功替换反馈。其他机型和系统版本的车机显示效果仍待验证。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("WQFiles 上游实测机型") {
+                LabeledContent("iPhone 16 Pro Max", value: "iOS 27.2.1")
+                LabeledContent("iPhone 17 Pro Max", value: "iOS 27.0.1")
+                LabeledContent("iPad Air 5", value: "iPadOS 27.0.1")
+                LabeledContent("iPhone 14 Pro", value: "iOS 26.7.1")
+                Text("以上为 WQFiles 文件访问测试记录。CarVista 壁纸替换需以车机显示结果为准。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("WQFiles 系统兼容范围") {
+                Text("支持 iOS 26.0–26.7.2，以及 iOS 27.0 至 27.3 beta 1。")
+                Text("上游用户反馈 iOS 26.5、27.2 和 27.3 beta 1 可使用 WQFiles。CarVista 在 27.3 beta 1 的壁纸替换仍待验证。")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Text("iOS 18 及更早版本、iOS 27.3 beta 2 及以后版本无法使用此方案替换壁纸。")
+                Link("查看上游测试记录", destination: URL(string: "https://github.com/kolbicz/WQFiles#tested-devices")!)
+            }
+        }
+        .navigationTitle("支持机型")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
