@@ -615,13 +615,19 @@ static BOOL wq_mutation_open(NSString *path, NSDictionary *expected, WQMutation 
         if (mutation->fd < 0 && wq_is_denied(errno) && wq_grant(path))
             mutation->fd = WQOpenRegularAt(mutation->parent, path.lastPathComponent.fileSystemRepresentation, flags, 0);
     }
-    if (mutation->fd < 0) { if (errorText) *errorText = wq_errno(errno); wq_mutation_close(mutation); return NO; }
+    if (mutation->fd < 0) {
+        int err = errno;
+        NSString *stage = mutation->parent < 0 ? @"打开目标目录失败" : @"打开目标文件失败";
+        if (errorText) *errorText = [NSString stringWithFormat:@"%@：%@", stage, wq_errno(err)];
+        wq_mutation_close(mutation);
+        return NO;
+    }
     if (flock(mutation->fd, LOCK_EX | LOCK_NB) != 0) {
         int err = errno;
         // Some providers do not implement locks. Keep descriptor/version checks;
         // this is advisory serialization, not atomicity against other writers.
         if (err != ENOTSUP && err != EOPNOTSUPP && err != ENOSYS) {
-            if (errorText) *errorText = wq_errno(err);
+            if (errorText) *errorText = [NSString stringWithFormat:@"锁定目标文件失败：%@", wq_errno(err)];
             wq_mutation_close(mutation); return NO;
         }
         wq_log(@"advisory locking unsupported: %@", path);
