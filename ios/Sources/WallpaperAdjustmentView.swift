@@ -155,6 +155,11 @@ struct WallpaperAdjustmentView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 8) {
+                        if let crop {
+                            Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素")
+                                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                                .accessibilityLabel("裁剪尺寸 \(Int(crop.rect.width)) 乘 \(Int(crop.rect.height)) 像素")
+                        }
                         Picker("编辑工具", selection: $colorEditing) {
                             Text("裁剪").tag(false)
                             Text("调色").tag(true)
@@ -163,11 +168,6 @@ struct WallpaperAdjustmentView: View {
                         .frame(width: 150)
                         .disabled(crop == nil)
                         .onChange(of: colorEditing) { _, _ in showsRatios = false }
-                        if let crop {
-                            Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素")
-                                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                                .accessibilityLabel("裁剪尺寸 \(Int(crop.rect.width)) 乘 \(Int(crop.rect.height)) 像素")
-                        }
                     }.lineLimit(1).minimumScaleFactor(0.7)
                 }
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }

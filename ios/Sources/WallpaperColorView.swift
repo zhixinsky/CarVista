@@ -97,6 +97,7 @@ struct WallpaperColorView: View {
                 NavigationStack {
                     VStack(spacing: 0) {
                         previewPanel
+                        Divider()
                         controlsPanel
                     }
                     .navigationTitle("调色")
@@ -117,6 +118,11 @@ struct WallpaperColorView: View {
 
     private var previewPanel: some View {
         VStack(spacing: 14) {
+            if embedded {
+                Text("请先裁剪，再调色")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Group {
                 if let image = showOriginal ? original : (corrected ?? original) {
                     Image(uiImage: image).resizable().scaledToFit()
@@ -138,7 +144,6 @@ struct WallpaperColorView: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
         .background(Color(uiColor: .systemGray6))
-        .overlay(alignment: .bottom) { Divider() }
     }
 
     private var controlsPanel: some View {
