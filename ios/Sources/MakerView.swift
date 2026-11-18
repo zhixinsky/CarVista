@@ -100,7 +100,7 @@ struct ComposeWallpaperView: View {
                         if photo != nil {
                             Button("裁剪") { adjusting = true }.buttonStyle(.bordered).disabled(locked)
                                 .accessibilityIdentifier("maker.adjust")
-                            Button("整体校色") { colorEditing = true }.buttonStyle(.bordered).disabled(locked)
+                            Button("调色") { colorEditing = true }.buttonStyle(.bordered).disabled(locked)
                                 .fixedSize(horizontal: true, vertical: false)
                             Button { downloadPhoto() } label: {
                                 if savingPhoto {
