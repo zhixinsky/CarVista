@@ -86,7 +86,8 @@ struct WallpaperColorView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Group {
+                VStack(spacing: 14) {
+                    Group {
                     if let image = showOriginal ? original : (corrected ?? original) {
                         Image(uiImage: image).resizable().scaledToFit()
                             .frame(maxWidth: .infinity, maxHeight: 210)
@@ -94,10 +95,22 @@ struct WallpaperColorView: View {
                     } else if problem == nil {
                         ProgressView("正在准备预览…")
                     }
-                }.padding(.horizontal, 20).padding(.vertical, 8)
+                    }
+                    Picker("预览对比", selection: $showOriginal) {
+                        Text("原图").tag(true)
+                        Text("调色后").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 280)
+                    .disabled(original == nil)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .background(Color(uiColor: .systemGray6))
+                Divider()
                 ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Toggle("查看原色", isOn: $showOriginal).disabled(original == nil)
                     Button("大联屏融合补偿") {
                         adjustment.leftEdge = Self.widePreset
                         usedWidePreset = true
