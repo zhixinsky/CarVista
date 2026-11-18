@@ -25,7 +25,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: local.carvista
         INFOPLIST_KEY_CFBundleDisplayName: CarVista
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: '将裁剪和校色后的壁纸保存到你的相册。'
-        MARKETING_VERSION: '0.4.1'
+        MARKETING_VERSION: '0.5.0'
         CURRENT_PROJECT_VERSION: '12'
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
