@@ -57,7 +57,6 @@ struct WallpaperAdjustmentView: View {
     @State private var showsBuickSizeWarning = false
     @State private var frameDragStart: WallpaperPixelCrop?
     @State private var cornerDragStart: WallpaperPixelCrop?
-    @State private var showsFineControls = false
 
     init(photo: MakerPhoto, startWithColor: Bool = false,
          save: @escaping (WallpaperPixelCrop, WallpaperColorAdjustment) -> Void) {
@@ -111,36 +110,28 @@ struct WallpaperAdjustmentView: View {
                                 Button("全图") { zoom = 1 }.disabled(zoom == 1)
                             }.font(.subheadline)
                             HStack(spacing: 6) {
-                                if showsFineControls && ratio == .free {
-                                    Picker("微调边线", selection: Binding(get: { selected }, set: { edge in
-                                        selected = edge
-                                        if zoom > 1 { focusSelectedEdge() }
-                                    })) {
-                                        ForEach(Edge.allCases, id: \.self) { edge in Text(edge.rawValue).tag(edge) }
-                                    }.pickerStyle(.segmented)
-                                    triangle(-1)
-                                    triangle(1)
-                                    if zoom > 1 {
-                                        Button { withAnimation(.easeInOut(duration: 0.2)) { focusSelectedEdge() } } label: {
-                                            Label("定位边线", systemImage: "scope").labelStyle(.iconOnly)
-                                                .frame(width: 44, height: 44)
-                                        }.buttonStyle(.borderless).accessibilityLabel("定位选中边线")
-                                    }
-                                } else {
-                                    Text(gestureHint).font(.caption).foregroundStyle(.secondary)
-                                    Spacer(minLength: 0)
+                                Picker("微调边线", selection: Binding(get: { selected }, set: { edge in
+                                    selected = edge
+                                    if zoom > 1 { focusSelectedEdge() }
+                                })) {
+                                    ForEach(Edge.allCases, id: \.self) { edge in Text(edge.rawValue).tag(edge) }
+                                }.pickerStyle(.segmented)
+                                triangle(-1)
+                                triangle(1)
+                                if zoom > 1 {
+                                    Button { withAnimation(.easeInOut(duration: 0.2)) { focusSelectedEdge() } } label: {
+                                        Label("定位边线", systemImage: "scope").labelStyle(.iconOnly)
+                                            .frame(width: 44, height: 44)
+                                    }.buttonStyle(.borderless).accessibilityLabel("定位选中边线")
                                 }
-                                Button { showsFineControls.toggle() } label: {
-                                    Label("微调", systemImage: showsFineControls ? "chevron.right" : "arrow.up.and.down.and.arrow.left.and.right")
-                                        .font(.subheadline.weight(.semibold))
-                                        .frame(minHeight: 34)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .fixedSize(horizontal: true, vertical: false)
-                                .accessibilityIdentifier("crop.fineControls")
-                                .disabled(ratio != .free)
-                                .accessibilityValue(showsFineControls ? "已展开" : "已收起")
-                            }.frame(minHeight: 44)
+                                Label("微调", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+                                    .font(.subheadline.weight(.semibold))
+                                    .frame(minHeight: 34)
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
+                            .disabled(ratio != .free)
+                            .accessibilityIdentifier("crop.fineControls")
+                            .frame(minHeight: 44)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -168,7 +159,10 @@ struct WallpaperAdjustmentView: View {
                         .frame(width: 150)
                         .disabled(crop == nil)
                         .onChange(of: colorEditing) { _, _ in showsRatios = false }
-                    }.lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .offset(x: -16)
                 }
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItemGroup(placement: .confirmationAction) {
@@ -234,12 +228,6 @@ struct WallpaperAdjustmentView: View {
         .tint(CanvasTheme.accent)
     }
 
-    private var gestureHint: String {
-        if cropLocked { return zoom > 1 ? "单指拖动查看大图" : "裁剪已锁定，可用滑杆放大" }
-        if ratio.allowsCornerResize { return "拖四角等比缩放 · 拖框内移动" }
-        return "拖动裁剪框，滑杆缩放"
-    }
-
     private var ratioOverlay: some View {
         ZStack(alignment: .topTrailing) {
             Color.black.opacity(0.12)
@@ -300,7 +288,6 @@ struct WallpaperAdjustmentView: View {
             : min(Int(pixels.height) - height, max(0, Int((current.rect.midY - CGFloat(height) / 2).rounded())))
         crop = WallpaperPixelCrop(left: left, top: top, right: left + width, bottom: top + height)
         ratio = option
-        showsFineControls = false
         zoom = 1
     }
 

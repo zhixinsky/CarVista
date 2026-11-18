@@ -1,65 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
-private struct ColorParameterValue: View {
-    let title: String
-    @Binding var value: Double
-    let range: ClosedRange<Double>
-    let neutral: Double
-    let scale: Double
-    let format: String
-    @State private var editing = false
-    @State private var input = ""
-
-    private var enteredValue: Double? {
-        guard let number = Double(input.trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: ",", with: ".")), number.isFinite else { return nil }
-        let converted = number / scale + neutral
-        return range.contains(converted) ? converted : nil
-    }
-
-    var body: some View {
-        Button {
-            input = String(format: "%.2f", (value - neutral) * scale)
-            editing = true
-        } label: {
-            Text(String(format: format, (value - neutral) * scale))
-                .monospacedDigit().underline()
-        }
-        .accessibilityLabel("输入\(title)")
-        .sheet(isPresented: $editing) {
-            NavigationStack {
-                Form {
-                    Section(title) {
-                        TextField("数值", text: $input)
-                            .keyboardType(.numbersAndPunctuation)
-                            .accessibilityLabel(title)
-                        Text("范围 \(String(format: format, (range.lowerBound - neutral) * scale)) 至 \(String(format: format, (range.upperBound - neutral) * scale))")
-                            .font(.footnote).foregroundStyle(.secondary)
-                        if enteredValue == nil {
-                            Text("请输入范围内的数字。").foregroundStyle(.red)
-                        }
-                    }
-                }
-                .navigationTitle(title)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("取消") { editing = false }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("确定") {
-                            if let enteredValue { value = enteredValue }
-                            editing = false
-                        }.disabled(enteredValue == nil)
-                    }
-                }
-            }
-            .presentationDetents([.medium, .large])
-        }
-    }
-}
-
 struct WallpaperColorView: View {
     @Environment(\.dismiss) private var dismiss
     let embedded: Bool
@@ -278,8 +219,8 @@ struct WallpaperColorView: View {
             HStack {
                 Text(title)
                 Spacer()
-                ColorParameterValue(title: title, value: value, range: range,
-                                    neutral: neutral, scale: scale, format: format)
+                Text(String(format: format, (value.wrappedValue - neutral) * scale))
+                    .monospacedDigit()
             }
             Slider(value: value, in: range, step: step).accessibilityLabel(title)
         }.disabled(original == nil)
