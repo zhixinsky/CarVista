@@ -98,9 +98,9 @@ struct ComposeWallpaperView: View {
                         }.buttonStyle(.borderedProminent).disabled(locked).accessibilityIdentifier("maker.select")
                             .accessibilityLabel(photo == nil ? "相册" : "更换照片")
                         if photo != nil {
-                            Button("裁剪") { adjusting = true }.buttonStyle(.bordered).disabled(locked)
+                            Button("裁剪") { colorEditing = false; adjusting = true }.buttonStyle(.bordered).disabled(locked)
                                 .accessibilityIdentifier("maker.adjust")
-                            Button("调色") { colorEditing = true }.buttonStyle(.bordered).disabled(locked)
+                            Button("调色") { colorEditing = true; adjusting = true }.buttonStyle(.bordered).disabled(locked)
                                 .fixedSize(horizontal: true, vertical: false)
                             Button { downloadPhoto() } label: {
                                 if savingPhoto {
@@ -209,22 +209,12 @@ struct ComposeWallpaperView: View {
             .task(id: photo?.id) { await loadSourcePixels() }
             .task(id: renderKey) { await refreshPreview() }
             .fullScreenCover(isPresented: $adjusting, onDismiss: { cropOrientation.restore() }) {
-                if let photo { WallpaperAdjustmentView(photo: photo) { crop in
+                if let photo { WallpaperAdjustmentView(photo: photo, startWithColor: colorEditing) { crop, color in
                     guard let index = photos.firstIndex(where: { $0.id == photo.id }) else { return }
-                    photos[index].adjustment = WallpaperAdjustment(pixelCrop: crop, color: photos[index].adjustment.color)
+                    photos[index].adjustment = WallpaperAdjustment(pixelCrop: crop, color: color == .init() ? nil : color)
                     generated[photo.id] = nil
                     persist()
                 }.modifier(CropLandscapeLayout(session: cropOrientation)) }
-            }
-            .sheet(isPresented: $colorEditing) {
-                if let photo {
-                    WallpaperColorView(photo: photo) { color in
-                        guard let index = photos.firstIndex(where: { $0.id == photo.id }) else { return }
-                        photos[index].adjustment.color = color == .init() ? nil : color
-                        generated[photo.id] = nil
-                        persist()
-                    }
-                }
             }
             .sheet(isPresented: $applying) {
                 if let photo, let entries = generated[photo.id] { NavigationStack { ApplyWallpaperView(entries: entries) } }

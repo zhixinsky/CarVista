@@ -62,6 +62,7 @@ private struct ColorParameterValue: View {
 
 struct WallpaperColorView: View {
     @Environment(\.dismiss) private var dismiss
+    let embedded: Bool
     let photo: MakerPhoto
     let save: (WallpaperColorAdjustment) -> Void
     @State private var adjustment: WallpaperColorAdjustment
@@ -74,7 +75,8 @@ struct WallpaperColorView: View {
     @State private var usedWidePreset = false
     private static let widePreset = WallpaperLeftEdgeBlend(width: 0.20, brightness: 0.90, saturation: 0.08, curve: 1)
 
-    init(photo: MakerPhoto, save: @escaping (WallpaperColorAdjustment) -> Void) {
+    init(photo: MakerPhoto, embedded: Bool = false, save: @escaping (WallpaperColorAdjustment) -> Void) {
+        self.embedded = embedded
         self.photo = photo
         self.save = save
         _adjustment = State(initialValue: photo.adjustment.color ?? .init())
@@ -84,121 +86,140 @@ struct WallpaperColorView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                VStack(spacing: 14) {
-                    Group {
-                    if let image = showOriginal ? original : (corrected ?? original) {
-                        Image(uiImage: image).resizable().scaledToFit()
-                            .frame(maxWidth: .infinity, maxHeight: 210)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                    } else if problem == nil {
-                        ProgressView("正在准备预览…")
-                    }
-                    }
-                    Picker("预览对比", selection: $showOriginal) {
-                        Text("原图").tag(true)
-                        Text("调色后").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 280)
-                    .disabled(original == nil)
+        Group {
+            if embedded {
+                HStack(alignment: .top, spacing: 0) {
+                    previewPanel.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    controlsPanel.frame(width: 310)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
-                .background(Color(uiColor: .systemGray6))
-                Divider()
-                ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Button("大联屏融合补偿") {
-                        adjustment.leftEdge = Self.widePreset
-                        usedWidePreset = true
-                        showOriginal = false
+                .onChange(of: adjustment) { _, value in save(value) }
+            } else {
+                NavigationStack {
+                    VStack(spacing: 0) {
+                        previewPanel
+                        controlsPanel
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(original == nil)
-                    if usedWidePreset {
-                        Text(adjustment.leftEdge == nil ? "大联屏融合补偿已暂停" :
-                             adjustment.leftEdge == Self.widePreset ? "大联屏预设已应用" : "大联屏预设已手动修改")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    if adjustment.leftEdge != nil && adjustment.mask != nil {
-                        Label("已叠加两项补偿，左侧亮度会同时受两项影响。", systemImage: "square.stack")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    leftEdgeControls
-                    Toggle("CarPlay 蒙版补偿", isOn: Binding(
-                        get: { adjustment.mask != nil },
-                        set: { enabled in
-                            if let mask = adjustment.mask { savedMask = mask }
-                            adjustment.mask = enabled ? savedMask : nil
-                            showOriginal = false
+                    .navigationTitle("调色")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("确定") { save(adjustment); dismiss() }.disabled(original == nil)
                         }
-                    )).disabled(original == nil)
-                    if let mask = adjustment.mask {
-                        Text("黑色蒙版 #000000").font(.subheadline).foregroundStyle(.secondary)
-                        slider("蒙版透明度", value: Binding(
-                            get: { adjustment.mask?.opacity ?? mask.opacity },
-                            set: { adjustment.mask?.opacity = $0 }
-                        ), range: 0...0.50, neutral: 0, format: "%.0f%%")
-                        slider("补偿强度", value: Binding(
-                            get: { adjustment.mask?.strength ?? 1 },
-                            set: { adjustment.mask?.strength = $0 }
-                        ), range: 0...1.50, neutral: 0, format: "%.0f%%")
-                        Toggle("水平渐变", isOn: Binding(
-                            get: { adjustment.mask?.horizontalGradient ?? false },
-                            set: { adjustment.mask?.horizontalGradient = $0 }
-                        ))
-                        if mask.horizontalGradient == true {
-                            Text("默认从左到右：24% → 20% → 15%。")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Toggle("高光保护", isOn: Binding(
-                            get: { adjustment.mask?.protectHighlights ?? true },
-                            set: { adjustment.mask?.protectHighlights = $0 }
-                        ))
-                        Text("20% 蒙版在 100% 强度下对应 1.25 倍 RGB 增益，高光保护会柔和压缩亮部。")
-                            .font(.caption).foregroundStyle(.secondary)
                     }
-                    DisclosureGroup("更多调节") {
-                        VStack(alignment: .leading, spacing: 18) {
-                            slider("亮度", value: $adjustment.brightness, range: -0.15...0.15, neutral: 0)
-                            slider("曝光", value: manual(\.exposure, defaultValue: 0), range: -1...1, neutral: 0,
-                                   scale: 1, format: "%+.2f EV")
-                            slider("对比度", value: $adjustment.contrast, range: 0.75...1.35, neutral: 1)
-                            slider("饱和度", value: $adjustment.saturation, range: 0.5...1.5, neutral: 1)
-                            slider("高光", value: manual(\.highlights, defaultValue: 0), range: -1...0, neutral: 0)
-                            slider("阴影", value: manual(\.shadows, defaultValue: 0), range: -1...1, neutral: 0)
-                            slider("色温", value: manual(\.temperature, defaultValue: 0), range: -2000...2000, neutral: 0,
-                                   step: 50, scale: 1, format: "%+.0f K")
-                            slider("Gamma", value: manual(\.gamma, defaultValue: 1), range: 0.65...1.5, neutral: 0,
-                                   scale: 1, format: "%.2f")
-                        }
-                        .padding(.top, 8)
-                    }
-                    Button("重置全部调色") {
-                        adjustment = .init()
-                        savedEdge = .init()
-                        savedMask = .init()
-                        usedWidePreset = false
-                        showOriginal = false
-                    }
-                    if let problem { Text(problem).font(.footnote).foregroundStyle(.red) }
-                }.padding(20).frame(maxWidth: 600).frame(maxWidth: .infinity)
                 }
             }
-            .navigationTitle("调色")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("确定") { save(adjustment); dismiss() }.disabled(original == nil)
+        }
+        .tint(CanvasTheme.accent)
+        .task { await loadOriginal() }
+        .task(id: PreviewKey(ready: original != nil, color: adjustment)) { await updatePreview() }
+    }
+
+    private var previewPanel: some View {
+        VStack(spacing: 14) {
+            Group {
+                if let image = showOriginal ? original : (corrected ?? original) {
+                    Image(uiImage: image).resizable().scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: embedded ? .infinity : 210)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                } else if problem == nil {
+                    ProgressView("正在准备预览…")
                 }
             }
-            .task { await loadOriginal() }
-            .task(id: PreviewKey(ready: original != nil, color: adjustment)) { await updatePreview() }
-        }.tint(CanvasTheme.accent)
+            Picker("预览对比", selection: $showOriginal) {
+                Text("原图").tag(true)
+                Text("调色后").tag(false)
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 280)
+            .disabled(original == nil)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .background(Color(uiColor: .systemGray6))
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private var controlsPanel: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Button("大联屏融合补偿") {
+                    adjustment.leftEdge = Self.widePreset
+                    usedWidePreset = true
+                    showOriginal = false
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(original == nil)
+                if usedWidePreset {
+                    Text(adjustment.leftEdge == nil ? "大联屏融合补偿已暂停" :
+                         adjustment.leftEdge == Self.widePreset ? "大联屏预设已应用" : "大联屏预设已手动修改")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if adjustment.leftEdge != nil && adjustment.mask != nil {
+                    Label("已叠加两项补偿，左侧亮度会同时受两项影响。", systemImage: "square.stack")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                leftEdgeControls
+                Toggle("CarPlay 蒙版补偿", isOn: Binding(
+                    get: { adjustment.mask != nil },
+                    set: { enabled in
+                        if let mask = adjustment.mask { savedMask = mask }
+                        adjustment.mask = enabled ? savedMask : nil
+                        showOriginal = false
+                    }
+                )).disabled(original == nil)
+                if let mask = adjustment.mask {
+                    Text("黑色蒙版 #000000").font(.subheadline).foregroundStyle(.secondary)
+                    slider("蒙版透明度", value: Binding(
+                        get: { adjustment.mask?.opacity ?? mask.opacity },
+                        set: { adjustment.mask?.opacity = $0 }
+                    ), range: 0...0.50, neutral: 0, format: "%.0f%%")
+                    slider("补偿强度", value: Binding(
+                        get: { adjustment.mask?.strength ?? 1 },
+                        set: { adjustment.mask?.strength = $0 }
+                    ), range: 0...1.50, neutral: 0, format: "%.0f%%")
+                    Toggle("水平渐变", isOn: Binding(
+                        get: { adjustment.mask?.horizontalGradient ?? false },
+                        set: { adjustment.mask?.horizontalGradient = $0 }
+                    ))
+                    if mask.horizontalGradient == true {
+                        Text("默认从左到右：24% → 20% → 15%。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Toggle("高光保护", isOn: Binding(
+                        get: { adjustment.mask?.protectHighlights ?? true },
+                        set: { adjustment.mask?.protectHighlights = $0 }
+                    ))
+                    Text("20% 蒙版在 100% 强度下对应 1.25 倍 RGB 增益，高光保护会柔和压缩亮部。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                DisclosureGroup("更多调节") {
+                    VStack(alignment: .leading, spacing: 18) {
+                        slider("亮度", value: $adjustment.brightness, range: -0.15...0.15, neutral: 0)
+                        slider("曝光", value: manual(\.exposure, defaultValue: 0), range: -1...1, neutral: 0,
+                               scale: 1, format: "%+.2f EV")
+                        slider("对比度", value: $adjustment.contrast, range: 0.75...1.35, neutral: 1)
+                        slider("饱和度", value: $adjustment.saturation, range: 0.5...1.5, neutral: 1)
+                        slider("高光", value: manual(\.highlights, defaultValue: 0), range: -1...0, neutral: 0)
+                        slider("阴影", value: manual(\.shadows, defaultValue: 0), range: -1...1, neutral: 0)
+                        slider("色温", value: manual(\.temperature, defaultValue: 0), range: -2000...2000, neutral: 0,
+                               step: 50, scale: 1, format: "%+.0f K")
+                        slider("Gamma", value: manual(\.gamma, defaultValue: 1), range: 0.65...1.5, neutral: 0,
+                               scale: 1, format: "%.2f")
+                    }
+                    .padding(.top, 8)
+                }
+                Button("重置全部调色") {
+                    adjustment = .init()
+                    savedEdge = .init()
+                    savedMask = .init()
+                    usedWidePreset = false
+                    showOriginal = false
+                }
+                if let problem { Text(problem).font(.footnote).foregroundStyle(.red) }
+            }.padding(20).frame(maxWidth: 600).frame(maxWidth: .infinity)
+        }
     }
 
     private struct PreviewKey: Equatable {

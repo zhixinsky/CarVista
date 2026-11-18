@@ -39,7 +39,9 @@ struct WallpaperAdjustmentView: View {
 
     @Environment(\.dismiss) private var dismiss
     let photo: MakerPhoto
-    let save: (WallpaperPixelCrop) -> Void
+    let save: (WallpaperPixelCrop, WallpaperColorAdjustment) -> Void
+    @State private var colorEditing: Bool
+    @State private var color: WallpaperColorAdjustment
     @State private var preview: UIImage?
     @State private var pixels = CGSize.zero
     @State private var crop: WallpaperPixelCrop?
@@ -57,82 +59,110 @@ struct WallpaperAdjustmentView: View {
     @State private var cornerDragStart: WallpaperPixelCrop?
     @State private var showsFineControls = false
 
+    init(photo: MakerPhoto, startWithColor: Bool = false,
+         save: @escaping (WallpaperPixelCrop, WallpaperColorAdjustment) -> Void) {
+        self.photo = photo
+        self.save = save
+        _colorEditing = State(initialValue: startWithColor)
+        _color = State(initialValue: photo.adjustment.color ?? .init())
+    }
+
+    private var croppedPhoto: MakerPhoto {
+        var result = photo
+        result.adjustment.pixelCrop = crop
+        result.adjustment.color = color
+        return result
+    }
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 4) {
-                GeometryReader { geometry in
-                    if let preview, let crop {
-                        viewport(preview, crop: crop, viewportSize: geometry.size)
-                    } else if failed {
-                        Text("无法读取原图").frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            Group {
+                if colorEditing, crop != nil {
+                    WallpaperColorView(photo: croppedPhoto, embedded: true) { color = $0 }
+                } else {
+                    VStack(spacing: 4) {
+                        GeometryReader { geometry in
+                            if let preview, let crop {
+                                viewport(preview, crop: crop, viewportSize: geometry.size)
+                            } else if failed {
+                                Text("无法读取原图").frame(maxWidth: .infinity, maxHeight: .infinity)
+                            } else {
+                                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
+                        }
+                        .background(Color(uiColor: .systemGray5), in: RoundedRectangle(cornerRadius: 10))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        if crop != nil {
+                            HStack {
+                                Button {
+                                    cropLocked.toggle()
+                                    panStart = nil
+                                    dragStart = nil
+                                    frameDragStart = nil
+                                    cornerDragStart = nil
+                                } label: {
+                                    Label(cropLocked ? "已锁定 · 解锁" : "锁定裁剪",
+                                          systemImage: cropLocked ? "lock.fill" : "lock.open")
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(cropLocked ? .orange : CanvasTheme.accent)
+                                .fixedSize()
+                                Slider(value: $zoom, in: 1...6).accessibilityLabel("预览缩放")
+                                Button("全图") { zoom = 1 }.disabled(zoom == 1)
+                            }.font(.subheadline)
+                            HStack(spacing: 6) {
+                                if showsFineControls && ratio == .free {
+                                    Picker("微调边线", selection: Binding(get: { selected }, set: { edge in
+                                        selected = edge
+                                        if zoom > 1 { focusSelectedEdge() }
+                                    })) {
+                                        ForEach(Edge.allCases, id: \.self) { edge in Text(edge.rawValue).tag(edge) }
+                                    }.pickerStyle(.segmented)
+                                    triangle(-1)
+                                    triangle(1)
+                                    if zoom > 1 {
+                                        Button { withAnimation(.easeInOut(duration: 0.2)) { focusSelectedEdge() } } label: {
+                                            Label("定位边线", systemImage: "scope").labelStyle(.iconOnly)
+                                                .frame(width: 44, height: 44)
+                                        }.buttonStyle(.borderless).accessibilityLabel("定位选中边线")
+                                    }
+                                } else {
+                                    Text(gestureHint).font(.caption).foregroundStyle(.secondary)
+                                    Spacer(minLength: 0)
+                                }
+                                Button { showsFineControls.toggle() } label: {
+                                    Label("微调", systemImage: showsFineControls ? "chevron.right" : "arrow.up.and.down.and.arrow.left.and.right")
+                                        .font(.subheadline.weight(.semibold))
+                                        .frame(minHeight: 34)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .accessibilityIdentifier("crop.fineControls")
+                                .disabled(ratio != .free)
+                                .accessibilityValue(showsFineControls ? "已展开" : "已收起")
+                            }.frame(minHeight: 44)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .overlay(alignment: .topTrailing) {
+                        if showsRatios { ratioOverlay }
                     }
                 }
-                .background(Color(uiColor: .systemGray5), in: RoundedRectangle(cornerRadius: 10))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                if crop != nil {
-                    HStack {
-                        Button {
-                            cropLocked.toggle()
-                            panStart = nil
-                            dragStart = nil
-                            frameDragStart = nil
-                            cornerDragStart = nil
-                        } label: {
-                            Label(cropLocked ? "已锁定 · 解锁" : "锁定裁剪",
-                                  systemImage: cropLocked ? "lock.fill" : "lock.open")
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(cropLocked ? .orange : CanvasTheme.accent)
-                        .fixedSize()
-                        Slider(value: $zoom, in: 1...6).accessibilityLabel("预览缩放")
-                        Button("全图") { zoom = 1 }.disabled(zoom == 1)
-                    }.font(.subheadline)
-                    HStack(spacing: 6) {
-                        if showsFineControls && ratio == .free {
-                            Picker("微调边线", selection: Binding(get: { selected }, set: { edge in
-                                selected = edge
-                                if zoom > 1 { focusSelectedEdge() }
-                            })) {
-                                ForEach(Edge.allCases, id: \.self) { edge in Text(edge.rawValue).tag(edge) }
-                            }.pickerStyle(.segmented)
-                            triangle(-1)
-                            triangle(1)
-                            if zoom > 1 {
-                                Button { withAnimation(.easeInOut(duration: 0.2)) { focusSelectedEdge() } } label: {
-                                    Label("定位边线", systemImage: "scope").labelStyle(.iconOnly)
-                                        .frame(width: 44, height: 44)
-                                }.buttonStyle(.borderless).accessibilityLabel("定位选中边线")
-                            }
-                        } else {
-                            Text(gestureHint).font(.caption).foregroundStyle(.secondary)
-                            Spacer(minLength: 0)
-                        }
-                        Button { showsFineControls.toggle() } label: {
-                            Label("微调", systemImage: showsFineControls ? "chevron.right" : "arrow.up.and.down.and.arrow.left.and.right")
-                                .font(.subheadline.weight(.semibold))
-                                .frame(minHeight: 34)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .accessibilityIdentifier("crop.fineControls")
-                        .disabled(ratio != .free)
-                        .accessibilityValue(showsFineControls ? "已展开" : "已收起")
-                    }.frame(minHeight: 44)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .overlay(alignment: .topTrailing) {
-                if showsRatios { ratioOverlay }
             }
             .navigationTitle("裁剪")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 8) {
-                        Text("裁剪").font(.headline)
+                        Picker("编辑工具", selection: $colorEditing) {
+                            Text("裁剪").tag(false)
+                            Text("调色").tag(true)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 150)
+                        .disabled(crop == nil)
+                        .onChange(of: colorEditing) { _, _ in showsRatios = false }
                         if let crop {
                             Text("\(Int(crop.rect.width)) × \(Int(crop.rect.height)) 像素")
                                 .font(.caption).monospacedDigit().foregroundStyle(.secondary)
@@ -142,13 +172,15 @@ struct WallpaperAdjustmentView: View {
                 }
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItemGroup(placement: .confirmationAction) {
-                    Button { showsRatios.toggle() } label: {
-                        Label(ratio == .free ? "比例" : ratio.rawValue, systemImage: "aspectratio")
-                    }.disabled(crop == nil || cropLocked).accessibilityIdentifier("crop.ratio")
-                    Button("还原") { showsRatios = false; ratio = .free; crop = .full(pixels); zoom = 1 }.disabled(crop == nil || cropLocked)
+                    if !colorEditing {
+                        Button { showsRatios.toggle() } label: {
+                            Label(ratio == .free ? "比例" : ratio.rawValue, systemImage: "aspectratio")
+                        }.disabled(crop == nil || cropLocked).accessibilityIdentifier("crop.ratio")
+                        Button("还原") { showsRatios = false; ratio = .free; crop = .full(pixels); zoom = 1 }.disabled(crop == nil || cropLocked)
+                    }
                     Button("确定") {
                         guard let crop else { return }
-                        save(crop)
+                        save(crop, color)
                         dismiss()
                     }.disabled(crop == nil)
                 }
