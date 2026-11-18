@@ -21,7 +21,7 @@ for source in [CGSize(width: 4032, height: 3024), CGSize(width: 3024, height: 40
         }
     }
 }
-let root = FileManager.default.temporaryDirectory.appendingPathComponent("CarCanvasTests-\(UUID().uuidString)")
+let root = FileManager.default.temporaryDirectory.appendingPathComponent("CarVistaTests-\(UUID().uuidString)")
 try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 defer { try? FileManager.default.removeItem(at: root) }
 let a = root.appendingPathComponent("old.cpbitmap")

@@ -1,10 +1,10 @@
-name: CarCanvasWorkshop
+name: CarVista
 options:
-  bundleIdPrefix: local.carcanvas
+  bundleIdPrefix: local.carvista
   deploymentTarget:
     iOS: '17.0'
 targets:
-  CarCanvasWorkshop:
+  CarVista:
     type: application
     platform: iOS
     sources:
@@ -22,7 +22,7 @@ targets:
       - sdk: Security.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: local.carcanvas.workshop
+        PRODUCT_BUNDLE_IDENTIFIER: local.carvista
         INFOPLIST_KEY_CFBundleDisplayName: CarVista
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: '将裁剪和校色后的壁纸保存到你的相册。'
         MARKETING_VERSION: '0.4.1'
@@ -36,38 +36,38 @@ targets:
         SWIFT_VERSION: '5.0'
         TARGETED_DEVICE_FAMILY: '1,2'
         CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_ENTITLEMENTS: CarCanvas.entitlements
+        CODE_SIGN_ENTITLEMENTS: CarVista.entitlements
         SWIFT_OBJC_BRIDGING_HEADER: Sources/Bridge.h
         HEADER_SEARCH_PATHS: '$(SRCROOT)/Vendor/WQFiles'
         CLANG_ENABLE_OBJC_ARC: YES
-  CarCanvasModelTests:
+  CarVistaModelTests:
     type: bundle.unit-test
     platform: iOS
     sources: [ModelTests]
     dependencies:
-      - target: CarCanvasWorkshop
+      - target: CarVista
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: local.carcanvas.workshop.modeltests
+        PRODUCT_BUNDLE_IDENTIFIER: local.carvista.modeltests
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_VERSION: '5.0'
-  CarCanvasUITests:
+  CarVistaUITests:
     type: bundle.ui-testing
     platform: iOS
     sources: [UITests]
     dependencies:
-      - target: CarCanvasWorkshop
+      - target: CarVista
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: local.carcanvas.workshop.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: local.carvista.uitests
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_VERSION: '5.0'
 schemes:
-  CarCanvasWorkshop:
+  CarVista:
     build:
       targets:
-        CarCanvasWorkshop: all
-        CarCanvasUITests: [test]
-        CarCanvasModelTests: [test]
+        CarVista: all
+        CarVistaUITests: [test]
+        CarVistaModelTests: [test]
     test:
-      targets: [CarCanvasModelTests, CarCanvasUITests]
+      targets: [CarVistaModelTests, CarVistaUITests]

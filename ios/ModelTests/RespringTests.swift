@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import XCTest
-@testable import CarCanvasWorkshop
+@testable import CarVista
 
 @MainActor
 final class RespringTests: XCTestCase {

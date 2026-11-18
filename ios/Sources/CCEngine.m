@@ -11,11 +11,11 @@ static BOOL CCAllowFullScan;
 static NSMutableSet<NSString *> *CCRoots;
 static WQScanCancellation *CCScan;
 static BOOL CCConfirm(NSString *what, int64_t ids, double seconds) {
-    wq_log(@"CarCanvas scan: %@, %lld ids, estimate %.0f seconds", what, ids, seconds);
+    wq_log(@"CarVista scan: %@, %lld ids, estimate %.0f seconds", what, ids, seconds);
     return CCAllowFullScan;
 }
 static void CCProgress(int64_t done, int64_t total, BOOL finished) {
-    if (finished) wq_log(@"CarCanvas container scan finished: %lld/%lld", done, total);
+    if (finished) wq_log(@"CarVista container scan finished: %lld/%lld", done, total);
 }
 static NSDictionary *CCFail(NSString *text) { return @{@"ok": @NO, @"message": text ?: @"操作失败"}; }
 static NSString *CCCanonical(NSString *path) {

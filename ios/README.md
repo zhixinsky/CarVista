@@ -46,7 +46,7 @@ GitHub Actions 产物为 `CarVista-resign.ipa`。它带有 ad-hoc 签名和 App 
 
 ## 构建
 
-macOS + Xcode + XcodeGen：在 ios 目录执行 `xcodegen generate`，打开 `CarCanvasWorkshop.xcodeproj`。本地真机签名需为自己的 Bundle ID 创建并授予 App Group。
+macOS + Xcode + XcodeGen：在 ios 目录执行 `xcodegen generate`，打开 `CarVista.xcodeproj`。本地真机签名需为自己的 Bundle ID 创建并授予 App Group。
 
 `.github/workflows/ios-diagnostics.yml` 在 main 更新后自动编译。流水线先运行裁剪/扫描测试和上游文件写入与容器解析回归测试，再编译真机 arm64 应用，打包并生成 SHA-256。
 
@@ -60,7 +60,7 @@ macOS + Xcode + XcodeGen：在 ios 目录执行 `xcodegen generate`，打开 `Ca
 
 新应用代码采用 GPL-3.0-or-later，许可证随应用打包。WQFiles 模块保留原始版权及许可证，版本和来源见 Vendor/NOTICE.md。对应源码：https://github.com/zhixinsky/CarVista 。
 
-仓库 `build/CarCanvas-MobileHouseArrest.ipa` 是原作者旧版产物，**不是**本工程构建结果，也没有被修改或重新分发到新应用包内。
+仓库中原作者的旧版 IPA 属于历史产物，不属于当前工程构建结果。
 
 内置 5 张 6008×934 整屏壁纸。点击后拖动分界线或逐像素微调，只截取右侧区域；默认中点不代表真实车机边界，确认后记住位置。选用后自动切换原尺寸，不缩放、不融合。旧融合设置自动迁移到原尺寸。
 

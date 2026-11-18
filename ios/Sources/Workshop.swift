@@ -4,7 +4,7 @@ import PhotosUI
 import ImageIO
 
 @main
-struct CarCanvasWorkshopApp: App {
+struct CarVistaApp: App {
     @StateObject private var model = WorkshopModel()
     var body: some Scene { WindowGroup { CanvasHomeView().environmentObject(model) } }
 }
@@ -47,7 +47,7 @@ final class WorkshopModel: ObservableObject {
     nonisolated static var library: URL {
         WallpaperStorage.library
     }
-    private let queue = DispatchQueue(label: "carcanvas.io", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "carvista.io", qos: .userInitiated)
 
     init() {
         let width = UserDefaults.standard.integer(forKey: "LMAutoWidth")

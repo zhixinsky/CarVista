@@ -8,7 +8,7 @@ Copyright belongs to the upstream authors. GPL-3.0-or-later; full license in
 `WQFiles/LICENSE` and `ios/LICENSE`. Its access implementation credits
 Taj C (forcequit) and https://github.com/forcequitOS/worse_query.
 
-The new CarCanvas Workshop source in ios/Sources is GPL-3.0-or-later.
+The new CarVista Workshop source in ios/Sources is GPL-3.0-or-later.
 The original repository's prebuilt IPA is not part of this new app or its build.
 Corresponding source: https://github.com/zhixinsky/CarVista
 

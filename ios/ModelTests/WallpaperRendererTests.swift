@@ -1,6 +1,6 @@
 import XCTest
 import UIKit
-@testable import CarCanvasWorkshop
+@testable import CarVista
 
 final class WallpaperRendererTests: XCTestCase {
     func testBuiltinWallpapersKeepTheirSourceDimensions() throws {
