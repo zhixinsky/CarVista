@@ -130,28 +130,32 @@ struct ComposeWallpaperView: View {
                                     .fixedSize(horizontal: true, vertical: false)
                             }
                             GeometryReader { geo in
-                                let gap: CGFloat = 6
+                                let gap: CGFloat = 8
                                 let unit = (geo.size.width - gap) / 3
                                 HStack(spacing: gap) {
                                     Button { generate() } label: {
                                         Text("生成壁纸").lineLimit(1).minimumScaleFactor(0.7)
-                                            .frame(maxWidth: .infinity, minHeight: 32)
-                                    }.buttonStyle(.bordered).tint(.indigo).disabled(locked)
+                                            .frame(maxWidth: .infinity, minHeight: 44)
+                                            .background(Color.indigo, in: RoundedRectangle(cornerRadius: 12))
+                                            .foregroundStyle(.white)
+                                            .opacity(locked ? 0.5 : 1)
+                                    }.buttonStyle(.plain).disabled(locked)
                                         .accessibilityIdentifier("wallpaper.generate")
                                         .frame(width: unit)
                                     Button { prepareCurrentWallpaper() } label: {
-                                        HStack(spacing: 4) {
+                                        HStack(spacing: 6) {
                                             Image(systemName: "car.side.fill")
                                             Text("应用到 CarPlay").lineLimit(1).minimumScaleFactor(0.7)
                                         }
-                                        .frame(maxWidth: .infinity, minHeight: 32)
-                                        .background(CanvasTheme.accent, in: RoundedRectangle(cornerRadius: 8))
+                                        .frame(maxWidth: .infinity, minHeight: 44)
+                                        .background(CanvasTheme.accent, in: RoundedRectangle(cornerRadius: 12))
                                         .foregroundStyle(.white)
                                         .opacity(locked ? 0.5 : 1)
                                     }.buttonStyle(.plain).disabled(locked)
                                         .frame(width: unit * 2)
                                 }
-                            }.frame(height: 36)
+                                .font(.system(size: 17, weight: .semibold))
+                            }.frame(height: 44)
                         }
                         .font(.system(size: 13, weight: .medium))
                         .controlSize(.small)
