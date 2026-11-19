@@ -5,53 +5,120 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>{% block title %}CarVista 后台{% endblock %}</title>
+  <link rel="icon" href="/static/app-icon.png">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0/dist/css/tabler.min.css">
   <style>
-    :root { color-scheme: light; }
-    body { margin: 0; font: 15px/1.5 "Segoe UI", sans-serif; color: #1c2430; background: #f4f6f8; }
-    header { display: flex; gap: 20px; align-items: center; padding: 14px 24px; background: #fff; border-bottom: 1px solid #dde3ea; }
-    header strong { font-size: 16px; }
-    nav { display: flex; gap: 14px; flex-wrap: wrap; }
-    nav a { color: #1c2430; text-decoration: none; }
-    nav a:hover { text-decoration: underline; }
-    header form { margin-left: auto; }
-    main { max-width: 1080px; margin: 0 auto; padding: 24px; }
-    h1 { font-size: 22px; margin: 0 0 16px; }
-    .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-    .card, .panel { background: #fff; border: 1px solid #dde3ea; border-radius: 12px; padding: 16px; }
-    .card b { display: block; font-size: 28px; }
-    table { width: 100%; border-collapse: collapse; background: #fff; }
-    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e6ebf0; vertical-align: top; }
-    img.thumb { width: 160px; height: 48px; object-fit: cover; background: #eef2f5; border-radius: 6px; }
-    img.work { width: 180px; height: 100px; object-fit: cover; background: #eef2f5; border-radius: 8px; }
-    form.inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    input[type="text"], input[type="password"] { padding: 6px 8px; border: 1px solid #c5ced8; border-radius: 8px; }
-    button { padding: 6px 10px; border-radius: 8px; border: 1px solid #c5ced8; background: #fff; cursor: pointer; }
-    button.primary { background: #0b7a86; color: #fff; border-color: #0b7a86; }
-    .msg { margin: 0 0 12px; color: #0b7a86; }
-    .muted { color: #667387; font-size: 13px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-    a.block { color: inherit; text-decoration: none; }
+    body.cv-app {
+      margin: 0;
+      min-height: 100vh;
+      color: #172033;
+      background: linear-gradient(160deg, #f7fbff 0%, #eef6f6 42%, #f7f4fb 100%);
+      --tblr-primary: #0b7a86;
+      --tblr-primary-rgb: 11, 122, 134;
+    }
+    .cv-side {
+      position: fixed;
+      inset: 12px auto 12px 12px;
+      width: 248px;
+      display: flex;
+      flex-direction: column;
+      padding: 18px 14px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid rgba(255, 255, 255, 0.9);
+      box-shadow: 0 16px 40px rgba(28, 55, 70, 0.06);
+      z-index: 20;
+    }
+    .cv-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 8px 16px;
+      color: #172033;
+      font-weight: 680;
+      text-decoration: none;
+    }
+    .cv-brand img { width: 36px; height: 36px; border-radius: 10px; }
+    .cv-nav { display: flex; flex-direction: column; gap: 4px; }
+    .cv-nav a {
+      display: block;
+      padding: 10px 12px;
+      border-radius: 12px;
+      color: #3d4b5c;
+      text-decoration: none;
+    }
+    .cv-nav a:hover { background: rgba(11, 122, 134, 0.06); color: #0b7a86; }
+    .cv-nav a.active { background: #e7f5f6; color: #0b7a86; font-weight: 650; }
+    .cv-main { margin-left: 284px; min-height: 100vh; }
+    .cv-top {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 28px 32px 8px;
+    }
+    .cv-top h1 { margin: 0; font-size: 28px; letter-spacing: -0.03em; }
+    .cv-top p { margin: 6px 0 0; color: #6b7787; }
+    .cv-content { padding: 16px 32px 40px; }
+    .cv-panel {
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.95);
+      border-radius: 20px;
+      box-shadow: 0 12px 32px rgba(28, 55, 70, 0.05);
+    }
+    .cv-stat { padding: 20px 22px; }
+    .cv-stat span { color: #6b7787; font-size: 13px; }
+    .cv-stat strong { display: block; margin-top: 6px; font-size: 34px; letter-spacing: -0.04em; font-weight: 680; }
+    .cv-table { width: 100%; border-collapse: collapse; }
+    .cv-table th { color: #6b7787; font-weight: 600; font-size: 12px; letter-spacing: 0.04em; }
+    .cv-table th, .cv-table td { padding: 14px 18px; text-align: left; border-bottom: 1px solid #eef2f5; vertical-align: top; }
+    .cv-table tr:last-child td { border-bottom: 0; }
+    .media-card { overflow: hidden; }
+    .media-card img.preview { width: 100%; height: 118px; object-fit: cover; background: #e7eef2; display: block; }
+    .media-card .pad { padding: 14px 14px 16px; }
+    .cv-menu-btn { display: none; }
+    @media (max-width: 991px) {
+      .cv-side { position: static; width: auto; margin: 12px; }
+      .cv-main { margin-left: 0; }
+      .cv-menu-btn { display: inline-flex; }
+      .cv-top, .cv-content { padding-left: 16px; padding-right: 16px; }
+    }
   </style>
 </head>
-<body>
-  <header>
-    <strong>CarVista</strong>
-    <nav>
-      <a href="/admin">概览</a>
-      <a href="/admin/assets?collection=builtin">内置壁纸</a>
-      <a href="/admin/assets?collection=buick_gallery">别克大联屏</a>
-      <a href="/admin/users">用户</a>
-      <a href="/admin/works">作品</a>
-      <a href="/admin/failures">故障</a>
+<body class="cv-app">
+  <aside class="cv-side">
+    <div class="d-flex align-items-center justify-content-between">
+      <a class="cv-brand" href="/admin">
+        <img src="/static/app-icon.png" alt="">
+        <span>CarVista</span>
+      </a>
+      <button class="btn btn-sm cv-menu-btn" type="button" data-bs-toggle="collapse" data-bs-target="#cv-nav" aria-label="打开菜单">菜单</button>
+    </div>
+    <nav class="cv-nav collapse show" id="cv-nav">
+      <a class="{% if section == 'overview' %}active{% endif %}" href="/admin">概览</a>
+      <a class="{% if section == 'builtin' %}active{% endif %}" href="/admin/assets?collection=builtin">内置壁纸</a>
+      <a class="{% if section == 'buick_gallery' %}active{% endif %}" href="/admin/assets?collection=buick_gallery">别克大联屏</a>
+      <a class="{% if section == 'users' %}active{% endif %}" href="/admin/users">用户</a>
+      <a class="{% if section == 'works' %}active{% endif %}" href="/admin/works">作品</a>
+      <a class="{% if section == 'failures' %}active{% endif %}" href="/admin/failures">故障</a>
     </nav>
-    <form method="post" action="/admin/logout">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button>退出</button>
-    </form>
-  </header>
-  <main>
-    {% if msg %}<p class="msg">{{ msg }}</p>{% endif %}
-    {% block body %}{% endblock %}
-  </main>
+  </aside>
+  <div class="cv-main">
+    <header class="cv-top">
+      <div>
+        <h1>{% block page_title %}后台{% endblock %}</h1>
+        <p>{% block page_note %}{% endblock %}</p>
+      </div>
+      <form method="post" action="/admin/logout">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn btn-outline-secondary" type="submit">退出</button>
+      </form>
+    </header>
+    <div class="cv-content">
+      {% if msg %}<div class="alert alert-info">{{ msg }}</div>{% endif %}
+      {% block body %}{% endblock %}
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0/dist/js/tabler.min.js"></script>
 </body>
 </html>

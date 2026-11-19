@@ -1,49 +1,70 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} · CarVista{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+{% block page_note %}已发布的图片会直接出现在 App 里。{% endblock %}
 {% block body %}
-<h1>{{ title }}</h1>
-<p class="muted">已发布的项目会出现在 App 里。列表为空时，App 继续使用安装包里的壁纸。</p>
-<form class="panel inline" method="post" action="/admin/assets" enctype="multipart/form-data">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <input type="hidden" name="collection" value="{{ collection }}">
-  <input name="title" type="text" maxlength="60" placeholder="显示名称" required>
-  <input name="file" type="file" accept="image/jpeg,image/png" required>
-  <label><input name="published" type="checkbox" checked> 发布</label>
-  <button class="primary">上传</button>
-</form>
-<table>
-  <thead><tr><th>预览</th><th>名称与操作</th><th>尺寸</th></tr></thead>
-  <tbody>
-    {% for asset in assets %}
-    <tr>
-      <td><img class="thumb" src="/admin/assets/{{ asset.id }}/preview" alt=""></td>
-      <td>
-        <form class="inline" method="post" action="/admin/assets/{{ asset.id }}">
+<div class="cv-panel mb-3">
+  <form class="row g-3 align-items-end p-3" method="post" action="/admin/assets" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="collection" value="{{ collection }}">
+    <div class="col-md-4">
+      <label class="form-label">显示名称</label>
+      <input class="form-control" name="title" maxlength="60" placeholder="例如 海岸" required>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">原图</label>
+      <input class="form-control" name="file" type="file" accept="image/jpeg,image/png" required>
+    </div>
+    <div class="col-md-2">
+      <label class="form-check mb-2">
+        <input class="form-check-input" name="published" type="checkbox" checked>
+        <span class="form-check-label">发布</span>
+      </label>
+    </div>
+    <div class="col-md-2"><button class="btn btn-primary w-100" type="submit">上传</button></div>
+  </form>
+</div>
+<div class="row g-3">
+  {% for asset in assets %}
+  <div class="col-md-6 col-xl-4">
+    <article class="cv-panel media-card">
+      <img class="preview" src="/admin/assets/{{ asset.id }}/preview" alt="">
+      <div class="pad">
+        <form method="post" action="/admin/assets/{{ asset.id }}">
           <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input name="title" type="text" maxlength="60" value="{{ asset.title }}" required>
-          <label><input name="published" type="checkbox" {% if asset.published %}checked{% endif %}> 发布</label>
-          <button>保存</button>
+          <div class="input-group mb-2">
+            <input class="form-control" name="title" maxlength="60" value="{{ asset.title }}" required>
+            <button class="btn btn-primary" type="submit">保存</button>
+          </div>
+          <label class="form-check mb-2">
+            <input class="form-check-input" name="published" type="checkbox" {% if asset.published %}checked{% endif %}>
+            <span class="form-check-label">对 App 发布</span>
+          </label>
         </form>
-        <form class="inline" method="post" action="/admin/assets/{{ asset.id }}/move">
+        <div class="text-secondary small mb-2">{{ asset.width }} × {{ asset.height }} · {{ "已发布" if asset.published else "未发布" }}</div>
+        <div class="d-flex flex-wrap gap-2">
+          <form method="post" action="/admin/assets/{{ asset.id }}/move">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="btn btn-sm btn-outline-secondary" name="direction" value="up" type="submit">上移</button>
+            <button class="btn btn-sm btn-outline-secondary" name="direction" value="down" type="submit">下移</button>
+          </form>
+          <form method="post" action="/admin/assets/{{ asset.id }}/delete" onsubmit="return confirm('删除这张壁纸？App 将不再显示它。')">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="btn btn-sm btn-outline-danger" type="submit">删除</button>
+          </form>
+        </div>
+        <form class="mt-2" method="post" action="/admin/assets/{{ asset.id }}/replace" enctype="multipart/form-data">
           <input type="hidden" name="csrf" value="{{ csrf }}">
-          <button name="direction" value="up">上移</button>
-          <button name="direction" value="down">下移</button>
+          <div class="input-group input-group-sm">
+            <input class="form-control" name="file" type="file" accept="image/jpeg,image/png" required>
+            <button class="btn btn-outline-secondary" type="submit">替换原图</button>
+          </div>
         </form>
-        <form class="inline" method="post" action="/admin/assets/{{ asset.id }}/replace" enctype="multipart/form-data">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input name="file" type="file" accept="image/jpeg,image/png" required>
-          <button>替换原图</button>
-        </form>
-        <form method="post" action="/admin/assets/{{ asset.id }}/delete" onsubmit="return confirm('删除这张壁纸？')">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <button>删除</button>
-        </form>
-      </td>
-      <td class="muted">{{ asset.width }} × {{ asset.height }}<br>{{ "已发布" if asset.published else "未发布" }}</td>
-    </tr>
-    {% else %}
-    <tr><td colspan="3" class="muted">还没有壁纸。</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+      </div>
+    </article>
+  </div>
+  {% else %}
+  <div class="col-12"><div class="cv-panel p-4 text-secondary">还没有壁纸。上传后，App 下次打开时会拉取。</div></div>
+  {% endfor %}
+</div>
 {% endblock %}

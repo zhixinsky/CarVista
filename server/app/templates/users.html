@@ -1,22 +1,24 @@
 {% extends "base.html" %}
 {% block title %}用户 · CarVista{% endblock %}
+{% block page_title %}用户{% endblock %}
+{% block page_note %}内部用户名只在这里显示，App 里看不到。{% endblock %}
 {% block body %}
-<h1>用户</h1>
-<p class="muted">内部用户名只在这里显示，App 里看不到。</p>
-<table>
-  <thead><tr><th>内部用户名</th><th>机型</th><th>系统</th><th>App</th><th>最近出现</th></tr></thead>
-  <tbody>
-    {% for user in users %}
-    <tr>
-      <td><a href="/admin/users/{{ user.id }}">{{ user.internal_name }}</a></td>
-      <td>{{ user.device_machine or user.device_model }}</td>
-      <td>{{ user.ios_version }}</td>
-      <td>{{ user.app_version }}</td>
-      <td class="muted">{{ user.last_seen }}</td>
-    </tr>
-    {% else %}
-    <tr><td colspan="5" class="muted">还没有设备登记。</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="cv-panel">
+  <table class="cv-table">
+    <thead><tr><th>内部用户名</th><th>机型</th><th>系统</th><th>App</th><th>最近出现</th></tr></thead>
+    <tbody>
+      {% for user in users %}
+      <tr>
+        <td><a href="/admin/users/{{ user.id }}">{{ user.internal_name }}</a></td>
+        <td>{{ user.device_machine or user.device_model }}</td>
+        <td>{{ user.ios_version }}</td>
+        <td>{{ user.app_version }}</td>
+        <td class="text-secondary">{{ user.last_seen }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="text-secondary">还没有设备登记。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}

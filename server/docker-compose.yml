@@ -1,6 +1,8 @@
 services:
   carvista:
-    build: .
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
     restart: unless-stopped
     env_file: .env
     ports:

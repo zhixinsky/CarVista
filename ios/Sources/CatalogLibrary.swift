@@ -37,13 +37,13 @@ struct CatalogItem: Identifiable, Equatable {
 }
 
 enum CatalogPolicy {
-    /// A published remote list replaces the bundled wallpapers. An empty or failed
-    /// response keeps the last cache, then the images shipped in the app.
-    static func choose(offline: Bool, remote: [CatalogItem], cached: [CatalogItem], bundled: [CatalogItem]) -> [CatalogItem] {
-        if offline || remote.isEmpty {
-            return cached.isEmpty || offline ? bundled : cached
-        }
-        return remote
+    /// Offline UI tests keep the images shipped in the app. A live app uses the
+    /// server list, including when that list is empty. A failed request keeps
+    /// the last list that was downloaded.
+    static func choose(offline: Bool, remote: [CatalogItem]?, cached: [CatalogItem], bundled: [CatalogItem]) -> [CatalogItem] {
+        if offline { return bundled }
+        if let remote { return remote }
+        return cached
     }
 }
 
@@ -69,6 +69,11 @@ enum ServiceGate {
     }
 }
 
+struct CatalogLoad {
+    var items: [CatalogItem]
+    var note: String
+}
+
 enum CatalogLibrary {
     private struct Feed: Decodable { let items: [RemoteAsset] }
 
@@ -85,18 +90,21 @@ enum CatalogLibrary {
         }
     }
 
-    static func initial(_ collection: CatalogCollection) -> [CatalogItem] {
-        CatalogPolicy.choose(offline: !ServiceGate.enabled, remote: [], cached: cached(collection), bundled: bundled(collection))
+    static func initial(_ collection: CatalogCollection) -> CatalogLoad {
+        if !ServiceGate.enabled { return CatalogLoad(items: bundled(collection), note: "") }
+        let saved = cached(collection)
+        return CatalogLoad(items: saved, note: saved.isEmpty ? "正在从后台获取壁纸…" : "")
     }
 
-    static func refresh(_ collection: CatalogCollection) async -> [CatalogItem] {
-        let bundled = bundled(collection)
-        guard ServiceGate.enabled else { return bundled }
-        let cached = cached(collection)
-        let remote = await fetch(collection) ?? []
-        let chosen = CatalogPolicy.choose(offline: false, remote: remote, cached: cached, bundled: bundled)
-        if !remote.isEmpty { store(remote, collection) }
-        return chosen
+    static func refresh(_ collection: CatalogCollection) async -> CatalogLoad {
+        if !ServiceGate.enabled { return CatalogLoad(items: bundled(collection), note: "") }
+        if let remote = await fetch(collection) {
+            store(remote, collection)
+            let note = remote.isEmpty ? "后台暂时没有已发布的壁纸。" : ""
+            return CatalogLoad(items: remote, note: note)
+        }
+        let saved = cached(collection)
+        return CatalogLoad(items: saved, note: saved.isEmpty ? "无法连接后台，请检查网络。" : "")
     }
 
     static func thumbnail(_ item: CatalogItem) async -> UIImage? {
@@ -204,13 +212,18 @@ struct CatalogThumb: View {
 final class CatalogStore: ObservableObject {
     let collection: CatalogCollection
     @Published private(set) var items: [CatalogItem]
+    @Published private(set) var note: String
 
     init(collection: CatalogCollection) {
         self.collection = collection
-        items = CatalogLibrary.initial(collection)
+        let load = CatalogLibrary.initial(collection)
+        items = load.items
+        note = load.note
     }
 
     func refresh() async {
-        items = await CatalogLibrary.refresh(collection)
+        let load = await CatalogLibrary.refresh(collection)
+        items = load.items
+        note = load.note
     }
 }

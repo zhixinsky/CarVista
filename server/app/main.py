@@ -13,12 +13,14 @@ from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app import images
 from app.db import connect, data_dir, init_db, prune
+from app.seed import seed_wallpapers
 
 COLLECTIONS = {"builtin": "内置壁纸（别克专用）", "buick_gallery": "别克大联屏"}
 API_COLLECTIONS = {"builtin": "builtin", "buick": "buick_gallery", "buick_gallery": "buick_gallery"}
@@ -55,14 +57,17 @@ def create_app() -> FastAPI:
     if not secret or not password:
         raise RuntimeError("需要 CARVISTA_SESSION_SECRET 和 CARVISTA_ADMIN_PASSWORD")
     init_db()
+    seed_wallpapers()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         init_db()
+        seed_wallpapers()
         prune()
         yield
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
     app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
     app.add_middleware(SessionMiddleware, secret_key=secret, https_only=False, same_site="lax")
 
@@ -294,7 +299,7 @@ def create_app() -> FastAPI:
             message = payload_message(row["payload"]) or "无文案"
             counts[message] = counts.get(message, 0) + 1
         ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)[:8]
-        return render(request, "overview.html", page(request, stats=stats, ranked=ranked))
+        return render(request, "overview.html", page(request, section="overview", stats=stats, ranked=ranked))
 
     @app.get("/admin/assets", response_class=HTMLResponse)
     def asset_list(request: Request, collection: str = "builtin") -> HTMLResponse:
@@ -306,7 +311,7 @@ def create_app() -> FastAPI:
                 "SELECT * FROM assets WHERE collection = ? ORDER BY sort_order, created_at",
                 (collection,),
             ).fetchall()
-        return render(request, "assets.html", page(request, collection=collection, title=COLLECTIONS[collection], assets=rows))
+        return render(request, "assets.html", page(request, section=collection, collection=collection, title=COLLECTIONS[collection], assets=rows))
 
     @app.post("/admin/assets")
     async def create_asset(
@@ -445,7 +450,7 @@ def create_app() -> FastAPI:
         require_admin(request)
         with connect() as conn:
             rows = conn.execute("SELECT * FROM devices ORDER BY last_seen DESC LIMIT 200").fetchall()
-        return render(request, "users.html", page(request, users=rows))
+        return render(request, "users.html", page(request, section="users", users=rows))
 
     @app.get("/admin/users/{device_id}", response_class=HTMLResponse)
     def user_detail(request: Request, device_id: str) -> HTMLResponse:
@@ -462,7 +467,7 @@ def create_app() -> FastAPI:
                 "SELECT * FROM works WHERE device_id = ? ORDER BY created_at DESC LIMIT 50",
                 (device_id,),
             ).fetchall()
-        return render(request, "user.html", page(request, device=device, events=events, works=works))
+        return render(request, "user.html", page(request, section="users", device=device, events=events, works=works))
 
     @app.get("/admin/works", response_class=HTMLResponse)
     def works(request: Request) -> HTMLResponse:
@@ -473,7 +478,7 @@ def create_app() -> FastAPI:
                    JOIN devices ON devices.id = works.device_id
                    ORDER BY works.created_at DESC LIMIT 120"""
             ).fetchall()
-        return render(request, "works.html", page(request, works=rows))
+        return render(request, "works.html", page(request, section="works", works=rows))
 
     @app.get("/admin/works/{work_id}/file")
     def work_file(request: Request, work_id: str) -> FileResponse:
@@ -510,7 +515,7 @@ def create_app() -> FastAPI:
         ranked = sorted(groups.values(), key=lambda item: item["count"], reverse=True)
         for item in ranked:
             item["devices"] = len(item["devices"])
-        return render(request, "failures.html", page(request, groups=ranked, failures=parsed[:80]))
+        return render(request, "failures.html", page(request, section="failures", groups=ranked, failures=parsed[:80]))
 
     return app
 
@@ -520,7 +525,7 @@ def page(request: Request, **extra):
     if not token:
         token = secrets.token_urlsafe(24)
         request.session["csrf"] = token
-    extra.update(csrf=token, msg=request.query_params.get("msg", ""))
+    extra.update(csrf=token, msg=request.query_params.get("msg", ""), section=extra.get("section", ""))
     return extra
 
 

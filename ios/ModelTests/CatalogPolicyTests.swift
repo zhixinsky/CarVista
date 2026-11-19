@@ -2,20 +2,22 @@ import XCTest
 @testable import CarVista
 
 final class CatalogPolicyTests: XCTestCase {
-    func testPublishedRemoteListReplacesBundledWallpapers() {
+    func testLiveAppUsesTheServerList() {
         let remote = [item("海岸")]
-        let bundled = [item("壁纸 1")]
-        XCTAssertEqual(CatalogPolicy.choose(offline: false, remote: remote, cached: [], bundled: bundled), remote)
+        XCTAssertEqual(CatalogPolicy.choose(offline: false, remote: remote, cached: [], bundled: [item("壁纸 1")]), remote)
     }
 
-    func testEmptyRemoteKeepsCacheThenBundle() {
+    func testEmptyServerListDoesNotFallBackToTheAppBundle() {
+        let bundled = [item("壁纸 1")]
+        XCTAssertEqual(CatalogPolicy.choose(offline: false, remote: [], cached: [item("缓存")], bundled: bundled), [])
+    }
+
+    func testFailedRequestKeepsTheLastDownloadedList() {
         let cached = [item("上次的海岸")]
-        let bundled = [item("壁纸 1")]
-        XCTAssertEqual(CatalogPolicy.choose(offline: false, remote: [], cached: cached, bundled: bundled), cached)
-        XCTAssertEqual(CatalogPolicy.choose(offline: false, remote: [], cached: [], bundled: bundled), bundled)
+        XCTAssertEqual(CatalogPolicy.choose(offline: false, remote: nil, cached: cached, bundled: [item("壁纸 1")]), cached)
     }
 
-    func testOfflineCatalogIgnoresRemoteAndCache() {
+    func testOfflineCatalogUsesBundledWallpapers() {
         let bundled = [item("壁纸 1")]
         XCTAssertEqual(CatalogPolicy.choose(offline: true, remote: [item("海岸")], cached: [item("缓存")], bundled: bundled), bundled)
     }

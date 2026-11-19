@@ -14,6 +14,9 @@ struct BuickWallpaperGalleryView: View {
             VStack(alignment: .leading, spacing: 14) {
                 Label("别克大联屏用户请自行裁剪尺寸", systemImage: "crop")
                     .font(.subheadline).foregroundStyle(.secondary)
+                if !catalog.note.isEmpty {
+                    Text(catalog.note).font(.caption).foregroundStyle(.secondary)
+                }
                 LazyVStack(alignment: .leading, spacing: 16) {
                     ForEach(catalog.items) { wallpaper in
                         Button { error = nil; selection = wallpaper } label: {

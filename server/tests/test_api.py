@@ -15,6 +15,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("CARVISTA_ADMIN_PASSWORD", "secret")
     monkeypatch.setenv("CARVISTA_SESSION_SECRET", "test-secret")
     monkeypatch.setenv("CARVISTA_ADMIN_USER", "admin")
+    monkeypatch.setenv("CARVISTA_SEED", "")
     from app.main import create_app
     with TestClient(create_app(), follow_redirects=False) as test_client:
         yield test_client
@@ -111,3 +112,26 @@ def test_empty_catalog(client: TestClient) -> None:
     catalog = client.get("/v1/catalog/buick")
     assert catalog.status_code == 200
     assert catalog.json()["items"] == []
+
+
+def test_seed_imports_builtin_wallpapers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / "Builtin0.jpg").write_bytes(jpeg_bytes())
+    gallery = seed / "BuickGallery"
+    gallery.mkdir()
+    (gallery / "01.jpeg").write_bytes(jpeg_bytes(width=40, height=10))
+    monkeypatch.setenv("CARVISTA_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("CARVISTA_ADMIN_PASSWORD", "secret")
+    monkeypatch.setenv("CARVISTA_SESSION_SECRET", "test-secret")
+    monkeypatch.setenv("CARVISTA_SEED", str(seed))
+    from app.main import create_app
+    with TestClient(create_app(), follow_redirects=False) as client:
+        builtin = client.get("/v1/catalog/builtin").json()["items"]
+        buick = client.get("/v1/catalog/buick").json()["items"]
+    assert [item["title"] for item in builtin] == ["壁纸 1"]
+    assert [item["title"] for item in buick] == ["别克壁纸 1"]
+    with TestClient(create_app(), follow_redirects=False) as client:
+        again = client.get("/v1/catalog/builtin").json()["items"]
+    assert len(again) == 1
+

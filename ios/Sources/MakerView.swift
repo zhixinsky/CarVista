@@ -142,7 +142,10 @@ struct ComposeWallpaperView: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("内置壁纸（别克专用）").font(.headline)
-                    Text("点选后可直接应用到 CarPlay。").font(.caption).foregroundStyle(.secondary)
+                    Text("列表来自后台，点选后可应用到 CarPlay。").font(.caption).foregroundStyle(.secondary)
+                    if !builtinCatalog.note.isEmpty {
+                        Text(builtinCatalog.note).font(.caption).foregroundStyle(.secondary)
+                    }
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack {
                             ForEach(builtinCatalog.items) { item in
