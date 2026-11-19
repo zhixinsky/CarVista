@@ -601,8 +601,8 @@ static BOOL wq_mutation_current(NSString *path, WQMutation *mutation, BOOL versi
 
 // Another wallpaper app can set the user immutable flag after writing. Reading
 // still works, but O_RDWR returns EPERM until the owner clears that flag.
-// System flags are left unchanged.
-static BOOL wq_clear_user_lock_flags(int parent, const char *name)
+// System flags are left unchanged. Clearing the flag updates ctime only.
+static BOOL wq_clear_user_lock_flags(int parent, const char *name, NSDictionary **priorVersion)
 {
     struct stat st;
     if (fstatat(parent, name, &st, AT_SYMLINK_NOFOLLOW) != 0 || !S_ISREG(st.st_mode)) return NO;
@@ -611,10 +611,20 @@ static BOOL wq_clear_user_lock_flags(int parent, const char *name)
     int fd = openat(parent, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0) return NO;
     struct stat opened;
-    BOOL cleared = fstat(fd, &opened) == 0 && WQSameObject(&st, &opened) &&
-        fchflags(fd, opened.st_flags & ~userLocks) == 0;
+    BOOL same = fstat(fd, &opened) == 0 && WQSameObject(&st, &opened);
+    if (same && priorVersion) *priorVersion = wq_version_for_stat(&opened);
+    BOOL cleared = same && fchflags(fd, opened.st_flags & ~userLocks) == 0;
     close(fd);
     return cleared;
+}
+
+static BOOL wq_version_same_file(NSDictionary *before, NSDictionary *after)
+{
+    if (!before || !after) return NO;
+    for (NSString *key in @[@"device", @"inode", @"size", @"modifiedSeconds", @"modifiedNanoseconds"]) {
+        if (![before[key] isEqual:after[key]]) return NO;
+    }
+    return YES;
 }
 
 static BOOL wq_mutation_open(NSString *path, NSDictionary *expected, WQMutation *mutation, int flags, NSString **errorText)
@@ -628,6 +638,7 @@ static BOOL wq_mutation_open(NSString *path, NSDictionary *expected, WQMutation 
     NSString *parent = path.stringByDeletingLastPathComponent;
     mutation->parent = WQOpenDirectoryNoLinksFlags(parent, O_SEARCH);
     if (mutation->parent < 0 && wq_is_denied(errno) && wq_grant(parent)) mutation->parent = WQOpenDirectoryNoLinksFlags(parent, O_SEARCH);
+    NSDictionary *unlockedVersion = nil;
     if (mutation->parent >= 0) {
         const char *name = path.lastPathComponent.fileSystemRepresentation;
         mutation->fd = WQOpenRegularAt(mutation->parent, name, flags, 0);
@@ -635,7 +646,7 @@ static BOOL wq_mutation_open(NSString *path, NSDictionary *expected, WQMutation 
             mutation->fd = WQOpenRegularAt(mutation->parent, name, flags, 0);
         if (mutation->fd < 0 && errno == EPERM && (flags & O_ACCMODE) != O_RDONLY) {
             int err = errno;
-            if (wq_clear_user_lock_flags(mutation->parent, name)) {
+            if (wq_clear_user_lock_flags(mutation->parent, name, &unlockedVersion)) {
                 wq_log(@"write: cleared user immutable flag on %@", path);
                 mutation->fd = WQOpenRegularAt(mutation->parent, name, flags, 0);
             } else errno = err;
@@ -658,9 +669,10 @@ static BOOL wq_mutation_open(NSString *path, NSDictionary *expected, WQMutation 
         }
         wq_log(@"advisory locking unsupported: %@", path);
     }
-    if (fstat(mutation->fd, &mutation->before) != 0 ||
-        (expected && ![wq_version_for_stat(&mutation->before) isEqualToDictionary:expected]) ||
-        !wq_mutation_current(path, mutation, YES, errorText)) {
+    NSDictionary *openedVersion = fstat(mutation->fd, &mutation->before) == 0 ? wq_version_for_stat(&mutation->before) : nil;
+    BOOL expectedOK = !expected || [openedVersion isEqualToDictionary:expected] ||
+        (unlockedVersion && [unlockedVersion isEqualToDictionary:expected] && wq_version_same_file(unlockedVersion, openedVersion));
+    if (!openedVersion || !expectedOK || !wq_mutation_current(path, mutation, YES, errorText)) {
         wq_changed(errorText); wq_mutation_close(mutation); return NO;
     }
     WQ_MUTATION_HOOK(@"verified", path);
