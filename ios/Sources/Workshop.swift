@@ -524,20 +524,20 @@ struct BackupsView: View {
     @State private var confirming = false
     var body: some View {
         List {
-            Text("每次替换都会保留原文件。恢复前先查找车机壁纸，确认目标容器。")
+            Text("每个壁纸只在第一次替换前保存苹果自带的原图，之后不会覆盖。恢复始终回到这一份。恢复前先查找车机壁纸。")
             Button("查找车机壁纸") { model.scan(deep: false) }.disabled(model.busy || model.group.isEmpty)
             if model.busy { ProgressView("正在处理…") }
             Text(model.message)
-            if model.backups.isEmpty { Text("尚无备份") }
+            if model.backups.isEmpty { Text("还没有原始壁纸。第一次替换时会自动保存。") }
             ForEach(Array(model.backups.enumerated()), id: \.offset) { _, item in
                 VStack(alignment: .leading) {
                     Text(item["name"] as? String ?? "备份")
                     if let date = item["date"] as? Date { Text(date, style: .date); Text(date, style: .time) }
-                    Button("恢复这个版本") { chosen = item; confirming = true }.disabled(model.busy)
+                    Button("恢复苹果原壁纸") { chosen = item; confirming = true }.disabled(model.busy)
                 }
             }
         }.navigationTitle("备份与恢复")
-        .confirmationDialog("恢复选中的备份？当前文件也会先备份。", isPresented: $confirming, titleVisibility: .visible) {
+        .confirmationDialog("恢复第一次保存的苹果原壁纸？车上现在的图会被换回这一份。", isPresented: $confirming, titleVisibility: .visible) {
             Button("确认恢复") { if let chosen { model.restore(chosen) } }
         }
     }

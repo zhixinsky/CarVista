@@ -2,8 +2,10 @@
 #import "CCEngine.h"
 #import "WQAccess.h"
 #import <dlfcn.h>
+#import <fcntl.h>
 #import <objc/message.h>
 #import <sys/stat.h>
+#import <unistd.h>
 
 static NSString *const CCIdentifier = @"com.apple.CarPlayWallpaper";
 static NSString *const CCParent = @"/private/var/mobile/Containers/Data/Application";
@@ -186,6 +188,122 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellatio
     }
     return @{@"ok":@YES, @"path":path};
 }
+static NSString *CCOriginalsDirectory(void) {
+    NSString *docs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+    return [docs stringByAppendingPathComponent:@"Originals"];
+}
+static BOOL CCOriginalName(NSString *name) {
+    if (name.length < 10 || name.length > 120 || ![name.lowercaseString hasSuffix:@".cpbitmap"]) return NO;
+    NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:
+        @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"];
+    return [name rangeOfCharacterFromSet:allowed.invertedSet].location == NSNotFound;
+}
+static NSString *CCOriginalDisplayName(NSString *filename) {
+    NSDictionary *colors = @{@"Blue": @"蓝色", @"Purple": @"紫色", @"Gray": @"灰色", @"Green": @"绿色",
+        @"Brown": @"棕色", @"Red": @"红色", @"Black": @"黑色"};
+    NSString *label = filename.stringByDeletingPathExtension;
+    for (NSString *key in colors) {
+        if ([label localizedCaseInsensitiveContainsString:key]) label = [label stringByReplacingOccurrencesOfString:key withString:colors[key]];
+    }
+    label = [label stringByReplacingOccurrencesOfString:@"-Light" withString:@" · 浅色" options:NSCaseInsensitiveSearch range:NSMakeRange(0, label.length)];
+    label = [label stringByReplacingOccurrencesOfString:@"-Dark" withString:@" · 深色" options:NSCaseInsensitiveSearch range:NSMakeRange(0, label.length)];
+    label = [label stringByReplacingOccurrencesOfString:@"CARWallpaper" withString:@"" options:NSCaseInsensitiveSearch range:NSMakeRange(0, label.length)];
+    label = [label stringByReplacingOccurrencesOfString:@"-16" withString:@""];
+    return [NSString stringWithFormat:@"原始壁纸 · %@", label];
+}
+static NSString *CCOriginalPath(NSString *filename) {
+    return [CCOriginalsDirectory() stringByAppendingPathComponent:filename];
+}
+static BOOL CCWriteExclusive(NSString *dest, NSData *data, NSString **errorText) {
+    int fd = open(dest.fileSystemRepresentation, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        struct stat existing;
+        if (errno == EEXIST && stat(dest.fileSystemRepresentation, &existing) == 0 && existing.st_size > 0) return YES;
+        if (errorText) *errorText = @"无法创建原始壁纸备份";
+        return NO;
+    }
+    const uint8_t *bytes = data.bytes;
+    NSUInteger left = data.length;
+    BOOL ok = YES;
+    while (left > 0) {
+        ssize_t wrote = write(fd, bytes, left);
+        if (wrote < 0 && errno == EINTR) continue;
+        if (wrote <= 0) { ok = NO; break; }
+        bytes += wrote;
+        left -= (NSUInteger)wrote;
+    }
+    if (ok && fsync(fd) != 0) ok = NO;
+    if (close(fd) != 0) ok = NO;
+    if (!ok) unlink(dest.fileSystemRepresentation);
+    if (!ok && errorText) *errorText = @"保存原始壁纸失败";
+    return ok;
+}
+static NSString *CCOldestBackup(NSString *filename) {
+    NSString *base = wq_backup_root();
+    NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:base];
+    NSString *oldestPath = nil;
+    NSDate *oldestDate = nil;
+    for (NSString *relative in enumerator) {
+        if (![relative.lastPathComponent isEqualToString:filename]) continue;
+        NSString *path = [base stringByAppendingPathComponent:relative];
+        if (!wq_backup_original_path(path)) continue;
+        NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
+        if (![attributes.fileType isEqualToString:NSFileTypeRegular] || attributes.fileSize == 0) continue;
+        NSDate *date = attributes.fileCreationDate ?: attributes.fileModificationDate;
+        if (!oldestDate || [date compare:oldestDate] == NSOrderedAscending) {
+            oldestDate = date;
+            oldestPath = path;
+        }
+    }
+    return oldestPath;
+}
+static NSString *CCCurrentTarget(NSString *filename, NSString *savedPath) {
+    if (savedPath.length && CCAllowed(savedPath) && [savedPath.lastPathComponent isEqualToString:filename]) return savedPath;
+    NSArray *roots;
+    @synchronized (CCRoots) { roots = CCRoots.allObjects; }
+    NSFileManager *files = NSFileManager.defaultManager;
+    for (NSString *root in roots) {
+        NSString *caches = [root stringByAppendingPathComponent:@"Library/Caches"];
+        NSDirectoryEnumerator *enumerator = [files enumeratorAtPath:caches];
+        for (NSString *relative in enumerator) {
+            if (![relative.lastPathComponent isEqualToString:filename]) continue;
+            NSString *full = [caches stringByAppendingPathComponent:relative];
+            if (CCAllowed(full)) return full;
+        }
+    }
+    return nil;
+}
+// The first bytes seen for a slot are the Apple wallpaper. Later replacements
+// must not replace that file. An older rollback copy is preferred over the
+// file now on disk, because the disk file may already have been replaced.
+static BOOL CCPreserveOriginal(NSString *path, NSString **errorText) {
+    NSString *filename = path.lastPathComponent;
+    if (!CCOriginalName(filename)) {
+        if (errorText) *errorText = @"壁纸文件名无法作为原始备份";
+        return NO;
+    }
+    NSString *directory = CCOriginalsDirectory();
+    NSString *dest = CCOriginalPath(filename);
+    NSFileManager *files = NSFileManager.defaultManager;
+    NSDictionary *existing = [files attributesOfItemAtPath:dest error:nil];
+    if ([existing.fileType isEqualToString:NSFileTypeRegular] && existing.fileSize > 0) return YES;
+    NSString *source = CCOldestBackup(filename) ?: path;
+    NSData *data = [NSData dataWithContentsOfFile:source options:NSDataReadingMappedIfSafe error:nil];
+    if (!data.length || !CCDecode(data)) {
+        if (errorText) *errorText = @"无法读取苹果原始壁纸，已停止替换";
+        return NO;
+    }
+    if (![files createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil]) {
+        if (errorText) *errorText = @"无法创建原始壁纸目录";
+        return NO;
+    }
+    if (!CCWriteExclusive(dest, data, errorText)) return NO;
+    wq_set_user_immutable(dest);
+    NSDictionary *record = @{@"target": path, @"name": filename};
+    NSData *json = [NSJSONSerialization dataWithJSONObject:record options:0 error:nil];
+    [json writeToFile:[dest stringByAppendingPathExtension:@"json"] atomically:YES];
+    return YES;
+}
 + (NSDictionary *)apply:(NSDictionary *)target source:(NSString *)source {
     NSString *path = target[@"path"];
     if (![path isKindOfClass:NSString.class] || !CCAllowed(path)) return CCFail(@"目标不属于已确认的 CarPlayWallpaper 缓存，拒绝写入");
@@ -200,31 +318,58 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellatio
     // Intentionally accept different dimensions: write the source bytes as-is.
     if (!newImage.CGImage) return CCFail(@"源 CPBitmap 无法解码，未写入");
     NSString *error = nil;
+    if (!CCPreserveOriginal(path, &error)) return CCFail(error ?: @"无法保存苹果原始壁纸，已停止替换");
     if (!wq_write_if_unchanged(path, data, expected, &error)) return CCFail(error);
     if (!wq_set_user_immutable(path)) {
         return @{@"ok":@YES, @"message":@"已备份并写入，但没能锁定文件。下次连接车机时，系统可能会把它恢复成默认壁纸。"};
     }
     return @{@"ok":@YES, @"message":@"已备份并写入，并已锁定，避免下次连接车机时被系统恢复成默认壁纸。请重启 iPhone 后连接 CarPlay 检查效果。"};
 }
-+ (NSArray<NSDictionary *> *)backups {
-    NSMutableArray *items = NSMutableArray.new;
+static void CCAdoptExistingOriginals(void) {
     NSString *base = wq_backup_root();
     NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:base];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
     for (NSString *relative in enumerator) {
         if (![relative.pathExtension.lowercaseString isEqualToString:@"cpbitmap"]) continue;
-        NSString *path = [base stringByAppendingPathComponent:relative];
-        NSString *original = wq_backup_original_path(path);
-        if (!original.length) continue;
-        NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
-        if (![attributes.fileType isEqualToString:NSFileTypeRegular]) continue;
-        [items addObject:@{@"path":path, @"original":original, @"name":original.lastPathComponent,
-            @"date":attributes.fileModificationDate ?: NSDate.distantPast, @"bytes":@(attributes.fileSize)}];
+        NSString *backup = [base stringByAppendingPathComponent:relative];
+        NSString *target = wq_backup_original_path(backup);
+        if (!CCOriginalName(target.lastPathComponent) || [seen containsObject:target.lastPathComponent]) continue;
+        [seen addObject:target.lastPathComponent];
+        CCPreserveOriginal(target, NULL);
     }
-    return [items sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) { return [b[@"date"] compare:a[@"date"]]; }];
+}
++ (NSArray<NSDictionary *> *)backups {
+    CCAdoptExistingOriginals();
+    NSMutableArray *items = NSMutableArray.new;
+    NSString *base = CCOriginalsDirectory();
+    NSArray *names = [NSFileManager.defaultManager contentsOfDirectoryAtPath:base error:nil];
+    for (NSString *name in names) {
+        if (!CCOriginalName(name)) continue;
+        NSString *path = [base stringByAppendingPathComponent:name];
+        NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
+        if (![attributes.fileType isEqualToString:NSFileTypeRegular] || attributes.fileSize == 0) continue;
+        NSData *json = [NSData dataWithContentsOfFile:[path stringByAppendingPathExtension:@"json"]];
+        NSDictionary *record = json ? [NSJSONSerialization JSONObjectWithData:json options:0 error:nil] : nil;
+        NSString *target = [record[@"target"] isKindOfClass:NSString.class] ? record[@"target"] : @"";
+        [items addObject:@{@"path":path, @"original":target, @"name":CCOriginalDisplayName(name),
+            @"date":attributes.fileCreationDate ?: attributes.fileModificationDate ?: NSDate.distantPast,
+            @"bytes":@(attributes.fileSize), @"originalWallpaper":@YES}];
+    }
+    return [items sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        return [a[@"name"] compare:b[@"name"]];
+    }];
 }
 + (NSDictionary *)restore:(NSString *)backup {
     CCSetup();
-    NSString *original = wq_backup_original_path(backup);
+    NSString *original = nil;
+    NSString *originalRoot = [CCCanonical(CCOriginalsDirectory()) stringByAppendingString:@"/"];
+    if ([CCCanonical(backup) hasPrefix:originalRoot]) {
+        NSData *json = [NSData dataWithContentsOfFile:[backup stringByAppendingPathExtension:@"json"]];
+        NSDictionary *record = json ? [NSJSONSerialization JSONObjectWithData:json options:0 error:nil] : nil;
+        NSString *saved = [record[@"target"] isKindOfClass:NSString.class] ? record[@"target"] : nil;
+        original = CCCurrentTarget(backup.lastPathComponent, saved);
+    }
+    if (!original) original = wq_backup_original_path(backup);
     if (!original || !CCAllowed(original)) return CCFail(@"请先扫描并确认原壁纸容器。只允许恢复仍存在的同一目标文件。");
     NSDictionary *expected = wq_file_version(original);
     NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:backup error:nil];
