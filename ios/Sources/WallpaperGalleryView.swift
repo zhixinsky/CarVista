@@ -325,4 +325,11 @@ struct GalleryImage: View {
                 case .failure:
                     Label("图片加载失败", systemImage: "photo").font(.caption).foregroundStyle(.secondary)
                 case .empty:
-                    if url == nil { Label("暂无预览", systemImage:
+                    if url == nil { Label("暂无预览", systemImage: "photo").font(.caption).foregroundStyle(.secondary) }
+                    else { ProgressView() }
+                @unknown default: EmptyView()
+                }
+            }
+        }.clipped()
+    }
+}
