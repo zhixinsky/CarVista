@@ -80,10 +80,16 @@ struct WallpaperGalleryView: View {
     typealias Source = GalleryCategory
     let use: (GalleryPick) -> Void
     @Binding var source: Source
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var categories = GalleryCategory.cached
+    @Binding var focusSeriesGroupID: String?
+    @Environment(\.scenePhase) private var scenePhase    @State private var categories = GalleryCategory.cached
     @State private var galleryVisible = false
     @EnvironmentObject private var model: WorkshopModel
+    init(use: @escaping (GalleryPick) -> Void, source: Binding<Source>, focusSeriesGroupID: Binding<String?> = .constant(nil)) {
+        self.use = use
+        _source = source
+        _focusSeriesGroupID = focusSeriesGroupID
+    }
+
     private var visibleSources: [Source] {
         categories.filter { $0.published != 0 && ($0.hidden == 0 || model.photoDownloadUnlocked) }
     }
@@ -164,7 +170,7 @@ struct WallpaperGalleryView: View {
         case "commons": CommonsWallpaperGalleryView(use: use)
         case "buick": BuickWallpaperGalleryView(use: use)
         case "test": ServerWallpaperGalleryView(category: category, use: use)
-        case "series": SeriesGalleryView(category: category, use: use)
+        case "series": SeriesGalleryView(category: category, use: use, focusGroupID: $focusSeriesGroupID)
         default: ServerWallpaperGalleryView(category: category, use: use)
         }
     }

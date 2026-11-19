@@ -78,6 +78,46 @@ struct GalleryCategory: Codable, Identifiable, Hashable {
             return items
         } catch { return nil }
     }
+
+    static func fetchSeriesGroups(_ parentID: String) async -> [SeriesGroup]? {
+        guard ServiceGate.enabled else { return nil }
+        var request = URLRequest(url: ServiceGate.join("v1/gallery/categories/\(parentID)/groups"), timeoutInterval: 12)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            return try JSONDecoder().decode(SeriesGroupFeed.self, from: data).items
+        } catch { return nil }
+    }
+
+    static func fetchSeriesHomeEntries(includeHidden: Bool) async -> [SeriesHomeEntry] {
+        guard let categories = await fetch() else { return [] }
+        let parents = categories.filter { $0.published != 0 && $0.kind == "series" }
+        var entries: [SeriesHomeEntry] = []
+        for parent in parents where parent.hidden == 0 || includeHidden {
+            guard let groups = await fetchSeriesGroups(parent.id) else { continue }
+            for group in groups where group.hidden == 0 || includeHidden {
+                entries.append(SeriesHomeEntry(group: group, parent: parent))
+            }
+        }
+        return entries
+    }
+}
+
+struct SeriesHomeEntry: Identifiable, Hashable {
+    let id: String
+    let title: String
+    let cover: URL?
+    let count: Int
+    let parent: GalleryCategory
+
+    init(group: SeriesGroup, parent: GalleryCategory) {
+        id = group.id
+        title = group.title
+        cover = group.cover
+        count = group.count
+        self.parent = parent
+    }
 }
 
 struct ServerWallpaperGalleryView: View {
@@ -182,11 +222,18 @@ struct SeriesGroup: Decodable, Identifiable, Hashable {
 struct SeriesGalleryView: View {
     let category: GalleryCategory
     let use: (GalleryPick) -> Void
+    @Binding var focusGroupID: String?
     @EnvironmentObject private var model: WorkshopModel
     @State private var groups: [SeriesGroup] = []
     @State private var selected: SeriesGroup?
     @State private var loading = false
     @State private var problem: String?
+
+    init(category: GalleryCategory, use: @escaping (GalleryPick) -> Void, focusGroupID: Binding<String?> = .constant(nil)) {
+        self.category = category
+        self.use = use
+        _focusGroupID = focusGroupID
+    }
 
     private var visibleGroups: [SeriesGroup] {
         groups.filter { $0.hidden == 0 || model.photoDownloadUnlocked }
@@ -245,24 +292,29 @@ struct SeriesGalleryView: View {
             }
         }
         .task(id: category.id) { await reload() }
+        .onChange(of: focusGroupID) { _, _ in applyFocus() }
     }
 
     private func reload() async {
         guard !loading else { return }
         loading = true
         defer { loading = false }
-        var request = URLRequest(url: ServiceGate.join("v1/gallery/categories/\(category.id)/groups"), timeoutInterval: 12)
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw URLError(.badServerResponse) }
-            groups = try JSONDecoder().decode(GroupFeed.self, from: data).items
-            problem = nil
-            if let selected, !groups.contains(selected) { self.selected = nil }
-        } catch {
-            problem = "无法加载系列，请下拉重试。"
+        guard let items = await GalleryCategory.fetchSeriesGroups(category.id) else {
+            problem = groups.isEmpty ? "无法加载系列，请下拉重试。" : problem
+            return
         }
+        groups = items
+        problem = nil
+        if let selected, !groups.contains(selected) { self.selected = nil }
+        applyFocus()
     }
 
-    private struct GroupFeed: Decodable { let items: [SeriesGroup] }
+    private func applyFocus() {
+        guard let id = focusGroupID else { return }
+        guard let group = groups.first(where: { $0.id == id }) else { return }
+        selected = group
+        focusGroupID = nil
+    }
 }
+
+private struct SeriesGroupFeed: Decodable { let items: [SeriesGroup] }

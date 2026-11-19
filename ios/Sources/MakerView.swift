@@ -14,6 +14,8 @@ struct ComposeWallpaperView: View {
     private let openTool: ((WallpaperRoute) -> Void)?
     private let openGallery: (() -> Void)?
     private let openShared: (() -> Void)?
+    private let openSeries: ((GalleryCategory) -> Void)?
+    private let openSeriesGroup: ((GalleryCategory, SeriesHomeEntry) -> Void)?
     @State private var tool: WallpaperRoute?
     @State private var photos: [MakerPhoto] = []
     @State private var selection: PhotosPickerItem?
@@ -30,6 +32,9 @@ struct ComposeWallpaperView: View {
     @State private var sharedTop: [SharedWallpaper] = []
     @State private var sharedNote = ""
     @State private var sharedBusy: String?
+    @State private var seriesEntries: [SeriesHomeEntry] = []
+    @State private var seriesNote = ""
+    @State private var seriesVisible = false
     @State private var problem: String?
     @State private var generated: [UUID: [SavedWallpaper]] = [:]
     @State private var preview: UIImage?
@@ -43,11 +48,20 @@ struct ComposeWallpaperView: View {
         let turns = (((photo?.adjustment.turns ?? 0) % 4) + 4) % 4
         return turns % 2 == 0 ? sourcePixels : CGSize(width: sourcePixels.height, height: sourcePixels.width)
     }
-    init(galleryImport: Binding<GalleryImport?> = .constant(nil), openGallery: (() -> Void)? = nil, openShared: (() -> Void)? = nil, openTool: ((WallpaperRoute) -> Void)? = nil) {
+    init(
+        galleryImport: Binding<GalleryImport?> = .constant(nil),
+        openGallery: (() -> Void)? = nil,
+        openShared: (() -> Void)? = nil,
+        openSeries: ((GalleryCategory) -> Void)? = nil,
+        openSeriesGroup: ((GalleryCategory, SeriesHomeEntry) -> Void)? = nil,
+        openTool: ((WallpaperRoute) -> Void)? = nil
+    ) {
         _galleryImport = galleryImport
         self.openTool = openTool
         self.openGallery = openGallery
         self.openShared = openShared
+        self.openSeries = openSeries
+        self.openSeriesGroup = openSeriesGroup
     }
     private var outputLabel: String {
         guard outputSize.width > 0, outputSize.height > 0 else { return "读取原图尺寸…" }
@@ -192,6 +206,42 @@ struct ComposeWallpaperView: View {
                     }
                 }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
                     .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
+                if seriesVisible {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Button { openSeriesHeader() } label: {
+                            HStack {
+                                Text("系列壁纸").font(.headline)
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                            }
+                        }.buttonStyle(.plain).disabled(openSeries == nil).accessibilityIdentifier("wallpaper.series")
+                        if !seriesNote.isEmpty {
+                            Text(seriesNote).font(.caption).foregroundStyle(.secondary)
+                        }
+                        if seriesEntries.isEmpty {
+                            Text("正在加载系列…").font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 12) {
+                                    ForEach(seriesEntries) { item in
+                                        Button { openSeriesGroup?(item.parent, item) } label: {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                GalleryImage(url: item.cover, mode: .fill)
+                                                    .frame(width: 160, height: 90)
+                                                    .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
+                                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                                    .accessibilityHidden(true)
+                                                Text(item.title).font(.caption).lineLimit(1)
+                                                Text("\(item.count) 张").font(.caption2).foregroundStyle(.secondary)
+                                            }.frame(width: 160, alignment: .leading).contentShape(Rectangle())
+                                        }.buttonStyle(.plain).disabled(locked || openSeriesGroup == nil)
+                                    }
+                                }
+                            }
+                        }
+                    }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
+                }
                 VStack(alignment: .leading, spacing: 16) {
                     Text("CarPlay").font(.headline)
                     Label(model.group.isEmpty ? "本地制作可用，车机访问需有效签名" : "签名组已提供", systemImage: "checkmark.shield")
@@ -231,6 +281,8 @@ struct ComposeWallpaperView: View {
             }
             .onAppear { initialize() }
             .task { await loadShared() }
+            .task { await loadSeries() }
+            .onChange(of: model.photoDownloadUnlocked) { _, _ in Task { await loadSeries() } }
             .alert("已保存到相册", isPresented: $savedToPhotos) { Button("好", role: .cancel) {} }
             .task(id: galleryImport?.id) { await importGallerySelection() }
             .task(id: selection) { await importSelection() }
@@ -330,6 +382,31 @@ struct ComposeWallpaperView: View {
         }
         sharedTop = Array(remote.prefix(10))
         sharedNote = remote.isEmpty ? "还没有人精选壁纸。" : ""
+    }
+
+    private func loadSeries() async {
+        let hasCategory = GalleryCategory.cached.contains { $0.kind == "series" && $0.published != 0 }
+            || (await GalleryCategory.fetch())?.contains(where: { $0.kind == "series" && $0.published != 0 }) == true
+        guard ServiceGate.enabled, hasCategory else {
+            seriesVisible = false
+            seriesEntries = []
+            seriesNote = ""
+            return
+        }
+        seriesVisible = true
+        let entries = await GalleryCategory.fetchSeriesHomeEntries(includeHidden: model.photoDownloadUnlocked)
+        seriesEntries = entries
+        seriesNote = entries.isEmpty ? "还没有系列壁纸。" : ""
+    }
+
+    private func openSeriesHeader() {
+        if let parent = seriesEntries.first?.parent {
+            openSeries?(parent)
+            return
+        }
+        if let parent = GalleryCategory.cached.first(where: { $0.kind == "series" && $0.published != 0 }) {
+            openSeries?(parent)
+        }
     }
 
     private func applyShared(_ item: SharedWallpaper) {

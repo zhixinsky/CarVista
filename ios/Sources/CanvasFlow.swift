@@ -53,16 +53,32 @@ struct CanvasHomeView: View {
     @State private var guide = false
     @State private var tab = Tab.wallpaper
     @State private var gallerySource = WallpaperGalleryView.Source.stock
+    @State private var gallerySeriesGroupID: String?
     @State private var wallpaperPath: [WallpaperRoute] = []
     @State private var galleryImport: GalleryImport?
 
     var body: some View {
         TabView(selection: $tab) {
             NavigationStack(path: $wallpaperPath) {
-                ComposeWallpaperView(galleryImport: $galleryImport, openGallery: { tab = .gallery }, openShared: {
-                    gallerySource = .share
-                    tab = .gallery
-                }) { wallpaperPath.append($0) }
+                ComposeWallpaperView(
+                    galleryImport: $galleryImport,
+                    openGallery: { tab = .gallery },
+                    openShared: {
+                        gallerySource = .share
+                        gallerySeriesGroupID = nil
+                        tab = .gallery
+                    },
+                    openSeries: { parent in
+                        gallerySource = parent
+                        gallerySeriesGroupID = nil
+                        tab = .gallery
+                    },
+                    openSeriesGroup: { parent, entry in
+                        gallerySource = parent
+                        gallerySeriesGroupID = entry.id
+                        tab = .gallery
+                    }
+                ) { wallpaperPath.append($0) }
                     .navigationDestination(for: WallpaperRoute.self) { destination in
                         switch destination {
                         case .history: CanvasHistoryView()
@@ -77,7 +93,7 @@ struct CanvasHomeView: View {
                     galleryImport = GalleryImport(data: pick.data, source: pick.source, assetID: pick.assetID)
                     wallpaperPath.removeAll()
                     tab = .wallpaper
-                }, source: $gallerySource)
+                }, source: $gallerySource, focusSeriesGroupID: $gallerySeriesGroupID)
             }
             .tabItem { Label("图库", systemImage: "photo.stack") }.tag(Tab.gallery)
 
