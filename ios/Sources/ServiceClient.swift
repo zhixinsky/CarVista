@@ -36,12 +36,13 @@ actor ServiceClient {
         loadQueue()
         var body = payload
         body["device_machine"] = Self.machine
+        let facts = await deviceFacts()
         var event: [String: Any] = [
             "id": UUID().uuidString,
             "type": type,
             "at": Self.stamp(Date()),
             "app_version": Self.appVersion,
-            "ios_version": UIDevice.current.systemVersion,
+            "ios_version": facts.ios,
             "payload": body
         ]
         event["ok"] = ok.map { $0 as Any } ?? NSNull()
@@ -199,11 +200,12 @@ actor ServiceClient {
 
     private func register() async {
         let installID = KeychainStore.installID()
+        let facts = await deviceFacts()
         let payload: [String: Any] = [
             "install_id": installID,
             "app_version": Self.appVersion,
-            "ios_version": UIDevice.current.systemVersion,
-            "device_model": UIDevice.current.model,
+            "ios_version": facts.ios,
+            "device_model": facts.model,
             "device_machine": Self.machine
         ]
         var request = URLRequest(url: Self.endpoint("v1/devices"), timeoutInterval: 12)
@@ -227,6 +229,10 @@ actor ServiceClient {
     private func saveQueue() {
         guard let url = try? Self.queueURL(), let data = try? JSONSerialization.data(withJSONObject: queue) else { return }
         try? data.write(to: url, options: .atomic)
+    }
+
+    private func deviceFacts() async -> (ios: String, model: String) {
+        await MainActor.run { (UIDevice.current.systemVersion, UIDevice.current.model) }
     }
 
     private static func endpoint(_ path: String) -> URL {
