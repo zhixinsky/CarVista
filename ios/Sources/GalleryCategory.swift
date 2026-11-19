@@ -118,4 +118,13 @@ struct ServerWallpaperGalleryView: View {
         guard !importing, !model.busy else { return }
         importing = true
         Task {
-            defer { im
+            defer { importing = false }
+            do {
+                let data = try await CatalogLibrary.originalData(item)
+                use(GalleryPick(data: data, source: category.id == "test" ? "test" : "catalog", assetID: item.id))
+            } catch {
+                problem = "无法导入壁纸，请重试。"
+            }
+        }
+    }
+}
