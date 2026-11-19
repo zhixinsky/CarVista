@@ -385,8 +385,8 @@ struct ComposeWallpaperView: View {
     }
 
     private func loadSeries() async {
-        let hasCategory = GalleryCategory.cached.contains { $0.kind == "series" && $0.published != 0 }
-            || (await GalleryCategory.fetch())?.contains(where: { $0.kind == "series" && $0.published != 0 }) == true
+        let categories = await GalleryCategory.fetch() ?? GalleryCategory.cached
+        let hasCategory = categories.contains { $0.kind == "series" && $0.published != 0 }
         guard ServiceGate.enabled, hasCategory else {
             seriesVisible = false
             seriesEntries = []
