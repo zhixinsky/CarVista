@@ -462,4 +462,3 @@ private struct MakerThumbnail: View {
             .task(id: url) { image = await Task.detached { try? WallpaperRenderer.load(url, maximum: 160) }.value }
     }
 }
-                                                                                                                              
