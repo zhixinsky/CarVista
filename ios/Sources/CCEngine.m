@@ -201,7 +201,10 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellatio
     if (!newImage.CGImage) return CCFail(@"源 CPBitmap 无法解码，未写入");
     NSString *error = nil;
     if (!wq_write_if_unchanged(path, data, expected, &error)) return CCFail(error);
-    return @{@"ok":@YES, @"message":@"已备份并写入，回读校验通过。请重启 iPhone 后连接 CarPlay 检查效果，应用无法自动确认车机显示结果。"};
+    if (!wq_set_user_immutable(path)) {
+        return @{@"ok":@YES, @"message":@"已备份并写入，但没能锁定文件。下次连接车机时，系统可能会把它恢复成默认壁纸。"};
+    }
+    return @{@"ok":@YES, @"message":@"已备份并写入，并已锁定，避免下次连接车机时被系统恢复成默认壁纸。请重启 iPhone 后连接 CarPlay 检查效果。"};
 }
 + (NSArray<NSDictionary *> *)backups {
     NSMutableArray *items = NSMutableArray.new;
@@ -230,7 +233,10 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellatio
     if (!CCDecode(data)) return CCFail(@"备份无法解码，拒绝恢复");
     NSString *error = nil;
     if (!wq_write_if_unchanged(original, data, expected, &error)) return CCFail(error);
-    return @{@"ok":@YES, @"message":@"恢复完成，当前版本也已备份。请重启 iPhone 后连接 CarPlay 检查效果。"};
+    if (!wq_set_user_immutable(original)) {
+        return @{@"ok":@YES, @"message":@"恢复完成，但没能锁定文件。下次连接车机时，系统可能会把它恢复成默认壁纸。"};
+    }
+    return @{@"ok":@YES, @"message":@"恢复完成，并已锁定。请重启 iPhone 后连接 CarPlay 检查效果。"};
 }
 
 @end

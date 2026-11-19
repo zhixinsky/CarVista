@@ -38,6 +38,11 @@ NSData *_Nullable wq_read(NSString *path, NSUInteger maxBytes, NSString *_Nullab
 // A file's identity, size and change timestamps, for optimistic concurrency.
 NSDictionary<NSString *, NSNumber *> *_Nullable wq_file_version(NSString *path);
 
+// Keeps a wallpaper this app just wrote from being replaced the next time
+// CarPlay rebuilds its cache. Sets only the user immutable flag. Returns NO
+// when that flag could not be set; the new bytes may already be in place.
+BOOL wq_set_user_immutable(NSString *path);
+
 // Overwrites a file in place (same inode, owner and xattrs). The previous
 // contents are backed up first, and a failed write attempts to roll back.
 // Mutation/backup/rollback use one verified regular-file descriptor and an
