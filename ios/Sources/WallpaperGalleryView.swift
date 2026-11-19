@@ -68,52 +68,64 @@ private enum BingGallery {
 }
 
 struct WallpaperGalleryView: View {
-    enum Source: String, CaseIterable {
-        case bing = "Bing 每日精选", commons = "Commons 主题找图", buick = "别克壁纸", share = "共享壁纸"
+    enum Source: String, CaseIterable, Identifiable {
+        case stock = "默认壁纸"
+        case bing = "Bing 每日精选"
+        case commons = "Commons 主题找图"
+        case buick = "别克壁纸"
+        case share = "共享壁纸"
+        var id: String { rawValue }
+        var key: String {
+            switch self {
+            case .stock: "stock"
+            case .bing: "bing"
+            case .commons: "commons"
+            case .buick: "buick"
+            case .share: "share"
+            }
+        }
     }
     let use: (GalleryPick) -> Void
     @Binding var source: Source
-    @State private var openedCommons = false
-    @State private var openedBuick = false
-    @State private var openedShare = false
 
     var body: some View {
-        ZStack {
-            BingWallpaperGalleryView(use: use)
-                .opacity(source == .bing ? 1 : 0)
-                .allowsHitTesting(source == .bing)
-                .accessibilityHidden(source != .bing)
-            if openedCommons || source == .commons {
-                CommonsWallpaperGalleryView(use: use)
-                    .opacity(source == .commons ? 1 : 0)
-                    .allowsHitTesting(source == .commons)
-                    .accessibilityHidden(source != .commons)
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Source.allCases) { item in
+                            Button { source = item } label: {
+                                Text(item.rawValue)
+                                    .font(.subheadline.weight(source == item ? .semibold : .regular))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8)
+                                    .foregroundStyle(source == item ? Color.white : Color.primary)
+                                    .background(source == item ? CanvasTheme.accent : Color(uiColor: .secondarySystemFill), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("gallery.\(item.key)")
+                            .accessibilityAddTraits(source == item ? .isSelected : [])
+                            .id(item)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                }
+                .background(.background)
+                .onAppear { proxy.scrollTo(source, anchor: .center) }
+                .onChange(of: source) { _, value in
+                    withAnimation { proxy.scrollTo(value, anchor: .center) }
+                }
             }
-            if openedBuick || source == .buick {
-                BuickWallpaperGalleryView(use: use)
-                    .opacity(source == .buick ? 1 : 0)
-                    .allowsHitTesting(source == .buick)
-                    .accessibilityHidden(source != .buick)
+            TabView(selection: $source) {
+                StockWallpaperGalleryView(use: use).tag(Source.stock)
+                BingWallpaperGalleryView(use: use).tag(Source.bing)
+                CommonsWallpaperGalleryView(use: use).tag(Source.commons)
+                BuickWallpaperGalleryView(use: use).tag(Source.buick)
+                SharedWallpaperGalleryView(use: use).tag(Source.share)
             }
-            if openedShare || source == .share {
-                SharedWallpaperGalleryView(use: use)
-                    .opacity(source == .share ? 1 : 0)
-                    .allowsHitTesting(source == .share)
-                    .accessibilityHidden(source != .share)
-            }
-        }
-        .onChange(of: source) { _, value in
-            if value == .commons { openedCommons = true }
-            if value == .buick { openedBuick = true }
-            if value == .share { openedShare = true }
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            Picker("图库来源", selection: $source) {
-                ForEach(Source.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .padding(12)
-            .background(.background)
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("图库")
         .navigationBarTitleDisplayMode(.inline)

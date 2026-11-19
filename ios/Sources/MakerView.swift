@@ -319,7 +319,7 @@ struct ComposeWallpaperView: View {
         }
         do {
             var incoming = try await Task.detached { try MakerDraft.importPhoto(data: request.data) }.value
-            incoming.sourceName = request.source == "buick" ? "别克大联屏" : "在线图库"
+            incoming.sourceName = request.source == "buick" ? "别克大联屏" : request.source == "stock" ? "默认壁纸" : "在线图库"
             incoming.remoteSource = request.source
             incoming.remoteAssetID = request.assetID
             guard !Task.isCancelled else {
