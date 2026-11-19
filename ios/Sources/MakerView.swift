@@ -196,9 +196,13 @@ struct ComposeWallpaperView: View {
                                         .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
                                         .clipShape(RoundedRectangle(cornerRadius: 10))
                                         .accessibilityHidden(true)
-                                        Text(item.title).font(.caption).lineLimit(1)
-                                        Label("\(item.likes)", systemImage: "heart")
-                                            .font(.caption2).foregroundStyle(.secondary)
+                                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                            Text(item.title).font(.caption).lineLimit(1)
+                                            Spacer(minLength: 4)
+                                            Label("\(item.likes)", systemImage: "heart")
+                                                .font(.caption2).foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
                                     }.frame(width: 160, alignment: .leading).contentShape(Rectangle())
                                 }.buttonStyle(.plain).disabled(locked || sharedBusy != nil)
                             }
@@ -231,8 +235,13 @@ struct ComposeWallpaperView: View {
                                                     .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
                                                     .clipShape(RoundedRectangle(cornerRadius: 10))
                                                     .accessibilityHidden(true)
-                                                Text(item.title).font(.caption).lineLimit(1)
-                                                Text("\(item.count) 张").font(.caption2).foregroundStyle(.secondary)
+                                                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                                    Text(item.title).font(.caption).lineLimit(1)
+                                                    Spacer(minLength: 4)
+                                                    Text("\(item.count) 张")
+                                                        .font(.caption2).foregroundStyle(.secondary)
+                                                        .lineLimit(1)
+                                                }
                                             }.frame(width: 160, alignment: .leading).contentShape(Rectangle())
                                         }.buttonStyle(.plain).disabled(locked || openSeriesGroup == nil)
                                     }
