@@ -81,7 +81,8 @@ struct WallpaperGalleryView: View {
     let use: (GalleryPick) -> Void
     @Binding var source: Source
     @Binding var focusSeriesGroupID: String?
-    @Environment(\.scenePhase) private var scenePhase    @State private var categories = GalleryCategory.cached
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var categories = GalleryCategory.cached
     @State private var galleryVisible = false
     @EnvironmentObject private var model: WorkshopModel
     init(use: @escaping (GalleryPick) -> Void, source: Binding<Source>, focusSeriesGroupID: Binding<String?> = .constant(nil)) {
