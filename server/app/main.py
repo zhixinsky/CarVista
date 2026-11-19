@@ -748,8 +748,10 @@ def create_app() -> FastAPI:
         clean_title = clip(title, 60) or "共享壁纸"
         clean_description = clip(description, 200)
         with connect() as conn:
-            if conn.execute("SELECT 1 FROM shares WHERE id = ?", (share_id,)).fetchone():
-                conn.execute("UPDATE shares SET description = ? WHERE id = ?", (clean_description, share_id))
+            existing = conn.execute("SELECT device_id FROM shares WHERE id = ?", (share_id,)).fetchone()
+            if existing:
+                if existing["device_id"] != device["id"]:
+                    raise HTTPException(403, "只能编辑自己共享的壁纸")
                 return JSONResponse({"ok": True, "duplicate": True})
         preview_data = await preview.read()
         original_data = await original.read()
@@ -771,6 +773,33 @@ def create_app() -> FastAPI:
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (share_id, device["id"], clean_title, clean_description, width, height, str(preview_path), str(original_path), now()),
             )
+        return JSONResponse({"ok": True})
+
+    @app.get("/v1/shares/{share_id}/metadata")
+    def share_metadata(request: Request, share_id: str) -> JSONResponse:
+        device = require_device(request)
+        with connect() as conn:
+            row = conn.execute("SELECT title, description, device_id FROM shares WHERE id = ?", (share_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "共享壁纸不存在")
+        if row["device_id"] != device["id"]:
+            raise HTTPException(403, "只能编辑自己共享的壁纸")
+        return JSONResponse({"title": row["title"], "description": row["description"] or ""})
+
+    @app.patch("/v1/shares/{share_id}/metadata")
+    def update_share(request: Request, share_id: str, title: str = Form(), description: str = Form("")) -> JSONResponse:
+        device = require_device(request)
+        clean_title = clip(title, 60)
+        if not clean_title:
+            raise HTTPException(400, "请输入壁纸名称")
+        with connect() as conn:
+            row = conn.execute("SELECT device_id FROM shares WHERE id = ?", (share_id,)).fetchone()
+            if row is None:
+                raise HTTPException(404, "共享壁纸不存在")
+            if row["device_id"] != device["id"]:
+                raise HTTPException(403, "只能编辑自己共享的壁纸")
+            conn.execute("UPDATE shares SET title = ?, description = ? WHERE id = ?",
+                         (clean_title, clip(description, 200), share_id))
         return JSONResponse({"ok": True})
 
     @app.post("/v1/shares/{share_id}/like")

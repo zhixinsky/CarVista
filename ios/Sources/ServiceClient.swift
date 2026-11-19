@@ -133,6 +133,38 @@ actor ServiceClient {
         } catch { return false }
     }
 
+    struct ShareMetadata: Decodable {
+        let title: String
+        let description: String
+    }
+
+    func shareMetadata(_ id: UUID) async -> ShareMetadata? {
+        guard let token = await ensureToken() else { return nil }
+        var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString)/metadata"), timeoutInterval: 20)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return nil }
+            return try JSONDecoder().decode(ShareMetadata.self, from: data)
+        } catch { return nil }
+    }
+
+    func updateShare(_ id: UUID, title: String, description: String) async -> Bool {
+        guard let token = await ensureToken() else { return false }
+        var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString)/metadata"), timeoutInterval: 20)
+        request.httpMethod = "PATCH"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        var form = URLComponents()
+        form.queryItems = [URLQueryItem(name: "title", value: title), URLQueryItem(name: "description", value: String(description.prefix(200)))]
+        request.httpBody = form.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+            return (200..<300).contains(http.statusCode)
+        } catch { return false }
+    }
+
     func fetchShares() async -> [SharedWallpaper]? {
         guard ServiceGate.enabled else { return nil }
         var request = URLRequest(url: Self.endpoint("v1/shares"), timeoutInterval: 20)

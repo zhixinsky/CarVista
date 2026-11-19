@@ -100,6 +100,7 @@ struct CanvasHistoryView: View {
     @State private var shareTarget: WallpaperCollection?
     @State private var detailTarget: WallpaperCollection?
     @State private var shareText = ""
+    @State private var shareTitle = ""
     @State private var sharingID: UUID?
     @State private var shareNotes: [UUID: String] = [:]
     var body: some View {
@@ -127,6 +128,7 @@ struct CanvasHistoryView: View {
                     .buttonStyle(.plain)
                     Button(sharingID == collection.id ? "正在共享…" : shared ? "已共享" : "共享") {
                         shareText = ""
+                        shareTitle = collection.title
                         shareTarget = collection
                     }
                     .buttonStyle(.borderless)
@@ -160,6 +162,7 @@ struct CanvasHistoryView: View {
             .sheet(item: $shareTarget) { collection in
                 NavigationStack {
                     Form {
+                        Section("壁纸名称") { TextField("壁纸名称", text: $shareTitle) }
                         Section {
                             TextField("写一段介绍，可以留空", text: $shareText, axis: .vertical)
                                 .lineLimit(3...6)
@@ -186,11 +189,12 @@ struct CanvasHistoryView: View {
 
     private func share(_ collection: WallpaperCollection, intro: String) {
         let shown = collection.entries.first { $0.mode == "车机" } ?? collection.first
+        let title = shareTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         sharingID = collection.id
         shareNotes[collection.id] = nil
         Task {
             defer { sharingID = nil }
-            let ok = await ServiceClient.shared.submitShare(shown, title: collection.title, description: intro)
+            let ok = await ServiceClient.shared.submitShare(shown, title: title.isEmpty ? collection.title : title, description: intro)
             shareNotes[collection.id] = ok ? "已共享到图库的「共享壁纸」。" : "共享失败，请检查网络后重试。"
         }
     }
@@ -209,6 +213,7 @@ struct WallpaperDetailView: View {
     @AppStorage("CarVistaSharedHistory") private var sharedHistory = ""
     @Environment(\.dismiss) private var dismiss
     let collectionID: UUID
+    var startSharing = false
     @State private var applying = false
     @State private var renaming = false
     @State private var deleting = false
@@ -217,6 +222,8 @@ struct WallpaperDetailView: View {
     @State private var shareNote: String?
     @State private var shareDraft = false
     @State private var shareText = ""
+    @State private var shareTitle = ""
+    @State private var editingShare = false
     private var collection: WallpaperCollection? { model.collections.first { $0.id == collectionID } }
     var body: some View {
         Group {
@@ -234,8 +241,10 @@ struct WallpaperDetailView: View {
                     Section {
                         Button { applying = true } label: { Label("应用到 CarPlay 壁纸", systemImage: "car.side.fill").font(.headline) }.disabled(model.busy)
                         let shared = collection.entries.contains { sharedHistory.split(separator: "|").contains(Substring($0.id.uuidString)) }
-                        Button(sharing ? "正在共享…" : shared ? "已共享" : "共享到图库") { shareText = ""; shareDraft = true }
-                            .disabled(model.busy || sharing || shared)
+                        Button(sharing ? "正在处理…" : shared ? "编辑共享" : "共享到图库") {
+                            prepareShare(collection, shared: shared)
+                        }
+                        .disabled(model.busy || sharing)
                         if let shareNote { Text(shareNote).font(.footnote).foregroundStyle(.secondary) }
                         ShareLink(items: collection.entries.map(\.bitmap)) { Label("分享 CPBitmap 文件", systemImage: "square.and.arrow.up") }
                         if let dashboard = collection.entries.first(where: { $0.mode == "车机" }) {
@@ -247,10 +256,17 @@ struct WallpaperDetailView: View {
                 }
             } else { ContentUnavailableView("记录已删除", systemImage: "photo") }
         }.navigationTitle("壁纸详情").navigationBarTitleDisplayMode(.inline)
+            .task {
+                if startSharing, let collection {
+                    let shared = collection.entries.contains { sharedHistory.split(separator: "|").contains(Substring($0.id.uuidString)) }
+                    prepareShare(collection, shared: shared)
+                }
+            }
             .sheet(isPresented: $applying) { if let collection { NavigationStack { ApplyWallpaperView(entries: collection.entries) } } }
             .sheet(isPresented: $shareDraft) {
                 NavigationStack {
                     Form {
+                        Section("壁纸名称") { TextField("壁纸名称", text: $shareTitle) }
                         Section {
                             TextField("写一段介绍，可以留空", text: $shareText, axis: .vertical)
                                 .lineLimit(3...6)
@@ -258,17 +274,24 @@ struct WallpaperDetailView: View {
                             Text("介绍会显示在图库的共享分类里。")
                         }
                     }
-                    .navigationTitle("共享壁纸")
+                    .navigationTitle(editingShare ? "编辑共享" : "共享壁纸")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
-                        ToolbarItem(placement: .cancellationAction) { Button("取消") { shareDraft = false } }
+                        ToolbarItem(placement: .cancellationAction) { Button("取消") { shareDraft = false }.disabled(sharing) }
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("共享") {
-                                shareDraft = false
+                            Button(editingShare ? "保存" : "共享") {
                                 if let collection { share(collection) }
                             }
+                            .disabled(sharing || shareTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     }
+                    .safeAreaInset(edge: .bottom) {
+                        if let shareNote {
+                            Text(shareNote).font(.footnote).padding().frame(maxWidth: .infinity)
+                                .background(.regularMaterial)
+                        }
+                    }
+                    .interactiveDismissDisabled(sharing)
                 }
                 .presentationDetents([.medium])
             }
@@ -282,15 +305,47 @@ struct WallpaperDetailView: View {
             }
     }
 
+    private func prepareShare(_ collection: WallpaperCollection, shared: Bool) {
+        editingShare = shared
+        shareNote = nil
+        shareTitle = collection.title
+        shareText = ""
+        if !shared { shareDraft = true; return }
+        sharing = true
+        Task {
+            defer { sharing = false }
+            let shown = collection.entries.first { $0.mode == "车机" } ?? collection.first
+            guard let metadata = await ServiceClient.shared.shareMetadata(shown.id) else {
+                shareNote = "无法读取共享信息，请确认后台已更新并重试。"
+                return
+            }
+            shareTitle = metadata.title
+            shareText = metadata.description
+            shareDraft = true
+        }
+    }
+
     private func share(_ collection: WallpaperCollection) {
         let shown = collection.entries.first { $0.mode == "车机" } ?? collection.first
         sharing = true
         shareNote = nil
+        let title = shareTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let intro = shareText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let editing = editingShare
         Task {
             defer { sharing = false }
-            let intro = shareText.trimmingCharacters(in: .whitespacesAndNewlines)
-            let ok = await ServiceClient.shared.submitShare(shown, title: collection.title, description: intro)
-            shareNote = ok ? "已共享到图库的「共享壁纸」。" : "共享失败，请检查网络后重试。"
+            let ok: Bool
+            if editing {
+                ok = await ServiceClient.shared.updateShare(shown.id, title: title, description: intro)
+            } else {
+                ok = await ServiceClient.shared.submitShare(shown, title: title, description: intro)
+            }
+            if ok {
+                shareDraft = false
+                shareNote = editing ? "共享信息已更新。" : "已共享到图库的「共享壁纸」。"
+            } else {
+                shareNote = "操作失败，请检查网络后重试。"
+            }
         }
     }
 }
@@ -392,7 +447,7 @@ struct ApplyWallpaperView: View {
                                         completed = count
                                         resultMessage = model.message
                                     }
-                                }.disabled(model.busy)
+                            }.disabled(model.busy)
                             }
                         }
                 }

@@ -23,6 +23,8 @@ struct ComposeWallpaperView: View {
     @State private var savingPhoto = false
     @State private var savedToPhotos = false
     @State private var generatedAlert = false
+    @State private var shareCollection: WallpaperCollection?
+    @AppStorage("CarVistaSharedHistory") private var sharedHistory = ""
     @State private var cropOrientation = CropOrientationSession()
     @State private var applying = false
     @State private var catalogApply: CatalogApply?
@@ -134,12 +136,15 @@ struct ComposeWallpaperView: View {
                         }
                     }.controlSize(.small)
                     if loading { ProgressView("正在导入照片…") }
-                    if photo != nil {
+                    if let photo {
                         HStack(spacing: 8) {
                             Button { generate() } label: {
-                                Text("生成壁纸文件").multilineTextAlignment(.center)
+                                Text("生成壁纸").multilineTextAlignment(.center)
                             }.buttonStyle(.bordered).tint(.indigo).disabled(locked)
                                 .accessibilityIdentifier("wallpaper.generate")
+                            let shared = generated[photo.id]?.contains { sharedHistory.split(separator: "|").contains(Substring($0.id.uuidString)) } ?? false
+                            Button(shared ? "已共享" : "共享壁纸") { prepareShare() }
+                                .buttonStyle(.bordered).disabled(locked || shared)
                             Button { prepareCurrentWallpaper() } label: {
                                 Label("应用到 CarPlay", systemImage: "car.side.fill").frame(maxWidth: .infinity)
                             }.buttonStyle(.borderedProminent).disabled(locked)
@@ -245,6 +250,12 @@ struct ComposeWallpaperView: View {
             }
             .sheet(isPresented: $applying) {
                 if let photo, let entries = generated[photo.id] { NavigationStack { ApplyWallpaperView(entries: entries) } }
+            }
+            .sheet(item: $shareCollection) { collection in
+                NavigationStack {
+                    WallpaperDetailView(collectionID: collection.id, startSharing: true)
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { shareCollection = nil } } }
+                }
             }
             .sheet(item: $catalogApply) { apply in
                 NavigationStack { ApplyWallpaperView(entries: apply.entries) }
@@ -367,6 +378,22 @@ struct ComposeWallpaperView: View {
         if let old {
             generated[old.id] = nil
             try? FileManager.default.removeItem(at: old.url)
+        }
+    }
+
+    private func prepareShare() {
+        guard let photo, !locked else { return }
+        if let entries = generated[photo.id], let first = entries.first {
+            shareCollection = WallpaperCollection(id: first.batchID ?? first.id, entries: entries)
+            return
+        }
+        model.generatePhotos([photo], preset: .original, size: outputSize) { batches in
+            guard let entries = batches.first, let first = entries.first else {
+                problem = model.message
+                return
+            }
+            generated[photo.id] = entries
+            shareCollection = WallpaperCollection(id: first.batchID ?? first.id, entries: entries)
         }
     }
 
