@@ -137,18 +137,30 @@ struct ComposeWallpaperView: View {
                     }.controlSize(.small)
                     if loading { ProgressView("正在导入照片…") }
                     if let photo {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 6) {
                             Button { generate() } label: {
-                                Text("生成壁纸").multilineTextAlignment(.center)
+                                Text("生成壁纸")
                             }.buttonStyle(.bordered).tint(.indigo).disabled(locked)
                                 .accessibilityIdentifier("wallpaper.generate")
                             let shared = generated[photo.id]?.contains { sharedHistory.split(separator: "|").contains(Substring($0.id.uuidString)) } ?? false
                             Button(shared ? "已共享" : "共享壁纸") { prepareShare() }
                                 .buttonStyle(.bordered).disabled(locked || shared)
                             Button { prepareCurrentWallpaper() } label: {
-                                Label("应用到 CarPlay", systemImage: "car.side.fill").frame(maxWidth: .infinity)
-                            }.buttonStyle(.borderedProminent).disabled(locked)
+                                HStack(spacing: 4) {
+                                    Image(systemName: "car.side.fill")
+                                    Text("应用到 CarPlay")
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 32)
+                                .padding(.horizontal, 6)
+                                .background(CanvasTheme.accent, in: RoundedRectangle(cornerRadius: 8))
+                                .foregroundStyle(.white)
+                                .opacity(locked ? 0.5 : 1)
+                            }.buttonStyle(.plain).disabled(locked)
                         }
+                        .font(.system(size: 13, weight: .medium))
+                        .controlSize(.small)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                     }
                     if let problem { Text(problem).font(.subheadline).foregroundStyle(.red) }
                 }.padding(16).frame(maxWidth: .infinity)

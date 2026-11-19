@@ -119,6 +119,8 @@ def init_db() -> None:
         share_columns = {row[1] for row in conn.execute("PRAGMA table_info(shares)")}
         if share_columns and "description" not in share_columns:
             conn.execute("ALTER TABLE shares ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+        if share_columns and "author" not in share_columns:
+            conn.execute("ALTER TABLE shares ADD COLUMN author TEXT NOT NULL DEFAULT ''")
 
 
 def prune(days: int = 180) -> None:

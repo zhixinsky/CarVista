@@ -98,7 +98,7 @@ actor ServiceClient {
         } catch { return false }
     }
 
-    func submitShare(_ entry: SavedWallpaper, title: String, description: String) async -> Bool {
+    func submitShare(_ entry: SavedWallpaper, title: String, description: String, author: String = "") async -> Bool {
         guard ServiceGate.enabled else { return false }
         guard let preview = try? Data(contentsOf: entry.preview), !preview.isEmpty,
               let original = try? Data(contentsOf: entry.originalImage), !original.isEmpty else { return false }
@@ -111,6 +111,7 @@ actor ServiceClient {
         field("id", entry.id.uuidString)
         field("title", title)
         field("description", String(description.prefix(200)))
+        field("author", String(author.prefix(60)))
         field("width", String(entry.width))
         field("height", String(entry.height))
         body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"preview\"; filename=\"preview.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".utf8))
@@ -136,6 +137,7 @@ actor ServiceClient {
     struct ShareMetadata: Decodable {
         let title: String
         let description: String
+        let author: String?
     }
 
     func shareMetadata(_ id: UUID) async -> ShareMetadata? {
@@ -149,14 +151,16 @@ actor ServiceClient {
         } catch { return nil }
     }
 
-    func updateShare(_ id: UUID, title: String, description: String) async -> Bool {
+    func updateShare(_ id: UUID, title: String, description: String, author: String = "") async -> Bool {
         guard let token = await ensureToken() else { return false }
         var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString)/metadata"), timeoutInterval: 20)
         request.httpMethod = "PATCH"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         var form = URLComponents()
-        form.queryItems = [URLQueryItem(name: "title", value: title), URLQueryItem(name: "description", value: String(description.prefix(200)))]
+        form.queryItems = [URLQueryItem(name: "title", value: title),
+                           URLQueryItem(name: "description", value: String(description.prefix(200))),
+                           URLQueryItem(name: "author", value: String(author.prefix(60)))]
         request.httpBody = form.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
         do {
             let (_, response) = try await URLSession.shared.data(for: request)

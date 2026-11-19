@@ -101,6 +101,7 @@ struct CanvasHistoryView: View {
     @State private var detailTarget: WallpaperCollection?
     @State private var shareText = ""
     @State private var shareTitle = ""
+    @State private var shareAuthor = ""
     @State private var sharingID: UUID?
     @State private var shareNotes: [UUID: String] = [:]
     var body: some View {
@@ -129,6 +130,7 @@ struct CanvasHistoryView: View {
                     Button(sharingID == collection.id ? "正在共享…" : shared ? "已共享" : "共享") {
                         shareText = ""
                         shareTitle = collection.title
+                        shareAuthor = ""
                         shareTarget = collection
                     }
                     .buttonStyle(.borderless)
@@ -162,6 +164,7 @@ struct CanvasHistoryView: View {
             .sheet(item: $shareTarget) { collection in
                 NavigationStack {
                     Form {
+                        Section("作者") { TextField("作者，可以留空", text: $shareAuthor) }
                         Section("壁纸名称") { TextField("壁纸名称", text: $shareTitle) }
                         Section {
                             TextField("写一段介绍，可以留空", text: $shareText, axis: .vertical)
@@ -190,11 +193,12 @@ struct CanvasHistoryView: View {
     private func share(_ collection: WallpaperCollection, intro: String) {
         let shown = collection.entries.first { $0.mode == "车机" } ?? collection.first
         let title = shareTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let author = shareAuthor.trimmingCharacters(in: .whitespacesAndNewlines)
         sharingID = collection.id
         shareNotes[collection.id] = nil
         Task {
             defer { sharingID = nil }
-            let ok = await ServiceClient.shared.submitShare(shown, title: title.isEmpty ? collection.title : title, description: intro)
+            let ok = await ServiceClient.shared.submitShare(shown, title: title.isEmpty ? collection.title : title, description: intro, author: author)
             shareNotes[collection.id] = ok ? "已共享到图库的「共享壁纸」。" : "共享失败，请检查网络后重试。"
         }
     }
@@ -223,6 +227,7 @@ struct WallpaperDetailView: View {
     @State private var shareDraft = false
     @State private var shareText = ""
     @State private var shareTitle = ""
+    @State private var shareAuthor = ""
     @State private var editingShare = false
     private var collection: WallpaperCollection? { model.collections.first { $0.id == collectionID } }
     var body: some View {
@@ -266,6 +271,7 @@ struct WallpaperDetailView: View {
             .sheet(isPresented: $shareDraft) {
                 NavigationStack {
                     Form {
+                        Section("作者") { TextField("作者，可以留空", text: $shareAuthor) }
                         Section("壁纸名称") { TextField("壁纸名称", text: $shareTitle) }
                         Section {
                             TextField("写一段介绍，可以留空", text: $shareText, axis: .vertical)
@@ -309,6 +315,7 @@ struct WallpaperDetailView: View {
         editingShare = shared
         shareNote = nil
         shareTitle = collection.title
+        shareAuthor = ""
         shareText = ""
         if !shared { shareDraft = true; return }
         sharing = true
@@ -321,6 +328,7 @@ struct WallpaperDetailView: View {
             }
             shareTitle = metadata.title
             shareText = metadata.description
+            shareAuthor = metadata.author ?? ""
             shareDraft = true
         }
     }
@@ -330,15 +338,16 @@ struct WallpaperDetailView: View {
         sharing = true
         shareNote = nil
         let title = shareTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let author = shareAuthor.trimmingCharacters(in: .whitespacesAndNewlines)
         let intro = shareText.trimmingCharacters(in: .whitespacesAndNewlines)
         let editing = editingShare
         Task {
             defer { sharing = false }
             let ok: Bool
             if editing {
-                ok = await ServiceClient.shared.updateShare(shown.id, title: title, description: intro)
+                ok = await ServiceClient.shared.updateShare(shown.id, title: title, description: intro, author: author)
             } else {
-                ok = await ServiceClient.shared.submitShare(shown, title: title, description: intro)
+                ok = await ServiceClient.shared.submitShare(shown, title: title, description: intro, author: author)
             }
             if ok {
                 shareDraft = false

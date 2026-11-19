@@ -5,6 +5,7 @@ struct SharedWallpaper: Identifiable, Equatable {
     let id: String
     let title: String
     let intro: String
+    let author: String?
     let width: Int
     let height: Int
     let likes: Int
@@ -16,6 +17,7 @@ struct SharedWallpaper: Identifiable, Equatable {
         id = item.id
         title = item.title
         intro = item.intro
+        author = item.author
         width = item.width
         height = item.height
         likes = item.likes
@@ -31,6 +33,7 @@ struct ShareItem: Decodable {
     let id: String
     let title: String
     let intro: String
+    let author: String?
     let width: Int
     let height: Int
     let likes: Int
@@ -41,6 +44,7 @@ struct ShareItem: Decodable {
     enum CodingKeys: String, CodingKey {
         case id, title, width, height, likes, liked
         case intro = "description"
+        case author
         case previewURL = "preview_url"
         case originalURL = "original_url"
     }
@@ -80,6 +84,9 @@ struct SharedWallpaperGalleryView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(item.title).font(.subheadline)
+                                if let author = item.author, !author.isEmpty {
+                                    Text("作者：\(author)").font(.caption).foregroundStyle(.secondary)
+                                }
                                 if !item.intro.isEmpty {
                                     Text(item.intro).font(.caption).foregroundStyle(.secondary).lineLimit(3)
                                 }
@@ -121,7 +128,7 @@ struct SharedWallpaperGalleryView: View {
                   let index = items.firstIndex(where: { $0.id == item.id }) else { return }
             let current = items[index]
             items[index] = SharedWallpaper(ShareItem(
-                id: current.id, title: current.title, intro: current.intro, width: current.width, height: current.height,
+                id: current.id, title: current.title, intro: current.intro, author: current.author, width: current.width, height: current.height,
                 likes: result.likes, liked: result.liked, previewURL: current.previewURL, originalURL: current.originalURL
             ))
         }

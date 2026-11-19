@@ -182,7 +182,7 @@ def test_shared_wallpapers_rank_by_likes(client: TestClient) -> None:
     Image.new("RGB", (40, 16), (20, 30, 40)).save(original, "PNG")
     created = client.post(
         "/v1/shares",
-        data={"id": share_id, "title": "海岸共享", "description": "夜景公路", "width": 40, "height": 16},
+        data={"id": share_id, "title": "海岸共享", "description": "夜景公路", "author": "作者甲", "width": 40, "height": 16},
         files={
             "preview": ("preview.jpg", jpeg_bytes(), "image/jpeg"),
             "original": ("original.png", original.getvalue(), "image/png"),
@@ -194,18 +194,19 @@ def test_shared_wallpapers_rank_by_likes(client: TestClient) -> None:
     listed = client.get("/v1/shares", headers=first).json()["items"]
     assert listed[0]["title"] == "海岸共享"
     assert listed[0]["description"] == "夜景公路"
+    assert listed[0]["author"] == "作者甲"
     assert listed[0]["likes"] == 0
     metadata_url = f"/v1/shares/{share_id}/metadata"
     assert client.get(metadata_url, headers=first).json() == {
-        "title": "海岸共享", "description": "夜景公路"
+        "title": "海岸共享", "description": "夜景公路", "author": "作者甲"
     }
     assert client.get(metadata_url, headers=second).status_code == 403
     assert client.patch(metadata_url, data={"title": "越权修改"}, headers=second).status_code == 403
     assert client.patch(metadata_url, data={"title": "  "}, headers=first).status_code == 400
-    updated = client.patch(metadata_url, data={"title": "修改后的名称", "description": "修改后的介绍"}, headers=first)
+    updated = client.patch(metadata_url, data={"title": "修改后的名称", "description": "修改后的介绍", "author": "作者乙"}, headers=first)
     assert updated.status_code == 200
     assert client.get(metadata_url, headers=first).json() == {
-        "title": "修改后的名称", "description": "修改后的介绍"
+        "title": "修改后的名称", "description": "修改后的介绍", "author": "作者乙"
     }
     client.patch(metadata_url, data={"title": "海岸共享", "description": "夜景公路"}, headers=first)
     liked = client.post(f"/v1/shares/{share_id}/like", headers=second)

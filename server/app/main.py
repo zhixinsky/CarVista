@@ -20,10 +20,10 @@ from starlette.middleware.sessions import SessionMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app import images
-from app.db import connect, data_dir, init_db, prune
+from app.db import LIBRARY_INSTALL, connect, data_dir, init_db, prune
 from app.seed import seed_wallpapers
 
-COLLECTIONS = {"builtin": "内置壁纸（别克专用）", "buick_gallery": "别克大联屏"}
+COLLECTIONS = {"builtin": "内置壁纸（别克专用）", "buick_gallery": "别克壁纸"}
 API_COLLECTIONS = {"builtin": "builtin", "buick": "buick_gallery", "buick_gallery": "buick_gallery"}
 EVENT_TYPES = {
     "launch",
@@ -703,7 +703,7 @@ def create_app() -> FastAPI:
         base = public_base(request)
         with connect() as conn:
             rows = conn.execute(
-                """SELECT shares.id, shares.title, shares.description, shares.width, shares.height, shares.created_at,
+                """SELECT shares.id, shares.title, shares.description, shares.author, shares.width, shares.height, shares.created_at,
                           (SELECT count(*) FROM share_likes WHERE share_id = shares.id) AS likes,
                           EXISTS(SELECT 1 FROM share_likes WHERE share_id = shares.id AND device_id = ?) AS liked
                    FROM shares
@@ -715,6 +715,7 @@ def create_app() -> FastAPI:
             "id": row["id"],
             "title": row["title"],
             "description": row["description"] or "",
+            "author": row["author"] or "",
             "width": row["width"] or 0,
             "height": row["height"] or 0,
             "likes": row["likes"],
@@ -731,6 +732,7 @@ def create_app() -> FastAPI:
         id: str = Form(),
         title: str = Form(""),
         description: str = Form(""),
+        author: str = Form(""),
         width: int = Form(0),
         height: int = Form(0),
         preview: UploadFile = File(),
@@ -769,9 +771,9 @@ def create_app() -> FastAPI:
         with connect() as conn:
             conn.execute(
                 """INSERT OR IGNORE INTO shares
-                   (id, device_id, title, description, width, height, preview_path, original_path, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (share_id, device["id"], clean_title, clean_description, width, height, str(preview_path), str(original_path), now()),
+                   (id, device_id, title, description, author, width, height, preview_path, original_path, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (share_id, device["id"], clean_title, clean_description, clip(author, 60), width, height, str(preview_path), str(original_path), now()),
             )
         return JSONResponse({"ok": True})
 
@@ -779,15 +781,15 @@ def create_app() -> FastAPI:
     def share_metadata(request: Request, share_id: str) -> JSONResponse:
         device = require_device(request)
         with connect() as conn:
-            row = conn.execute("SELECT title, description, device_id FROM shares WHERE id = ?", (share_id,)).fetchone()
+            row = conn.execute("SELECT title, description, author, device_id FROM shares WHERE id = ?", (share_id,)).fetchone()
         if row is None:
             raise HTTPException(404, "共享壁纸不存在")
         if row["device_id"] != device["id"]:
             raise HTTPException(403, "只能编辑自己共享的壁纸")
-        return JSONResponse({"title": row["title"], "description": row["description"] or ""})
+        return JSONResponse({"title": row["title"], "description": row["description"] or "", "author": row["author"] or ""})
 
     @app.patch("/v1/shares/{share_id}/metadata")
-    def update_share(request: Request, share_id: str, title: str = Form(), description: str = Form("")) -> JSONResponse:
+    def update_share(request: Request, share_id: str, title: str = Form(), description: str = Form(""), author: str = Form("")) -> JSONResponse:
         device = require_device(request)
         clean_title = clip(title, 60)
         if not clean_title:
@@ -798,8 +800,8 @@ def create_app() -> FastAPI:
                 raise HTTPException(404, "共享壁纸不存在")
             if row["device_id"] != device["id"]:
                 raise HTTPException(403, "只能编辑自己共享的壁纸")
-            conn.execute("UPDATE shares SET title = ?, description = ? WHERE id = ?",
-                         (clean_title, clip(description, 200), share_id))
+            conn.execute("UPDATE shares SET title = ?, description = ?, author = ? WHERE id = ?",
+                         (clean_title, clip(description, 200), clip(author, 60), share_id))
         return JSONResponse({"ok": True})
 
     @app.post("/v1/shares/{share_id}/like")
