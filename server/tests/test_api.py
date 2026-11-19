@@ -218,4 +218,22 @@ def test_shared_wallpapers_rank_by_likes(client: TestClient) -> None:
     assert "cv-" not in client.get("/v1/shares").text
     login(client)
     assert "海岸共享" in client.get("/admin/shares").text
+    page = client.get("/admin/shares")
+    csrf = page.text.split('name="csrf" value="', 1)[1].split('"', 1)[0]
+    url = f"/admin/shares/{share_id}/likes"
+    assert client.post(url, data={"csrf": "invalid", "likes": 20}).status_code == 403
+    assert client.post(url, data={"csrf": csrf, "likes": -1}).status_code == 400
+    assert client.post(url, data={"csrf": csrf, "likes": 20}).status_code == 303
+    assert client.get("/v1/shares", headers=first).json()["items"][0]["likes"] == 20
+    assert client.get("/v1/shares", headers=first).json()["items"][0]["liked"] is True
+    assert client.post(f"/v1/shares/{share_id}/like", headers=second).json()["likes"] == 21
+    assert client.post(f"/v1/shares/{share_id}/like", headers=second).json()["likes"] == 20
+    assert client.post(url, data={"csrf": csrf, "likes": 0}).status_code == 303
+    assert client.post(f"/v1/shares/{share_id}/like", headers=first).json()["likes"] == 0
+    title_url = f"/admin/shares/{share_id}/title"
+    assert client.post(title_url, data={"csrf": "invalid", "title": "新名称"}).status_code == 403
+    assert client.post(title_url, data={"csrf": csrf, "title": " "}).status_code == 400
+    assert client.post(title_url, data={"csrf": csrf, "title": "后台新名称"}).status_code == 303
+    assert client.get("/v1/shares").json()["items"][0]["title"] == "后台新名称"
+    assert client.get(metadata_url, headers=first).json()["title"] == "后台新名称"
 

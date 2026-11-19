@@ -10,8 +10,20 @@
       <img class="preview" src="/v1/shares/{{ item.id }}/preview" alt="{{ item.title }}">
       <div class="pad">
         <div class="cv-card-name">{{ item.title }}</div>
+        <form method="post" action="/admin/shares/{{ item.id }}/title" class="d-flex align-items-center gap-2 my-2">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <label class="text-nowrap" for="title-{{ item.id }}">壁纸名称</label>
+          <input id="title-{{ item.id }}" class="form-control form-control-sm" type="text" name="title" value="{{ item.title }}" maxlength="60" required>
+          <button class="btn btn-sm btn-outline-primary" type="submit">保存</button>
+        </form>
         {% if item.description %}<div class="small">{{ item.description }}</div>{% endif %}
         <div class="cv-card-size">{{ item.width }} × {{ item.height }} · {{ item.likes }} 赞 · {{ item.created_at | sh }}</div>
+        <form method="post" action="/admin/shares/{{ item.id }}/likes" class="d-flex align-items-center gap-2 my-2">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <label for="likes-{{ item.id }}">点赞数</label>
+          <input id="likes-{{ item.id }}" class="form-control form-control-sm" style="width: 110px" type="number" name="likes" value="{{ item.likes }}" min="0" max="1000000000" step="1" required>
+          <button class="btn btn-sm btn-outline-primary" type="submit">保存</button>
+        </form>
         <div class="text-secondary small"><a href="/admin/users/{{ item.device_id }}">{{ item.internal_name }}</a></div>
         <form method="post" action="/admin/shares/{{ item.id }}/delete" onsubmit="return confirm('从共享图库移除这张壁纸？')">
           <input type="hidden" name="csrf" value="{{ csrf }}">

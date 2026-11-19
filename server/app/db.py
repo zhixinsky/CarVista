@@ -5,6 +5,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
+LIBRARY_INSTALL = "carvista-library"
+
+
 def data_dir() -> Path:
     path = Path(os.environ.get("CARVISTA_DATA", "/data"))
     path.mkdir(parents=True, exist_ok=True)
@@ -121,6 +124,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE shares ADD COLUMN description TEXT NOT NULL DEFAULT ''")
         if share_columns and "author" not in share_columns:
             conn.execute("ALTER TABLE shares ADD COLUMN author TEXT NOT NULL DEFAULT ''")
+        if share_columns and "likes_offset" not in share_columns:
+            conn.execute("ALTER TABLE shares ADD COLUMN likes_offset INTEGER NOT NULL DEFAULT 0")
 
 
 def prune(days: int = 180) -> None:

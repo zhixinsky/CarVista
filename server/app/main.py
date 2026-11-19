@@ -704,7 +704,7 @@ def create_app() -> FastAPI:
         with connect() as conn:
             rows = conn.execute(
                 """SELECT shares.id, shares.title, shares.description, shares.author, shares.width, shares.height, shares.created_at,
-                          (SELECT count(*) FROM share_likes WHERE share_id = shares.id) AS likes,
+                          max(0, shares.likes_offset + (SELECT count(*) FROM share_likes WHERE share_id = shares.id)) AS likes,
                           EXISTS(SELECT 1 FROM share_likes WHERE share_id = shares.id AND device_id = ?) AS liked
                    FROM shares
                    ORDER BY likes DESC, shares.created_at DESC
@@ -810,7 +810,8 @@ def create_app() -> FastAPI:
         if limited(f"likes:{device['id']}", 120, 3600):
             raise HTTPException(429, "点赞过于频繁")
         with connect() as conn:
-            row = conn.execute("SELECT 1 FROM shares WHERE id = ?", (share_id,)).fetchone()
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT likes_offset FROM shares WHERE id = ?", (share_id,)).fetchone()
             if row is None:
                 raise HTTPException(404)
             liked = conn.execute(
@@ -824,7 +825,8 @@ def create_app() -> FastAPI:
                     "INSERT INTO share_likes (share_id, device_id, created_at) VALUES (?, ?, ?)",
                     (share_id, device["id"], now()),
                 )
-            likes = conn.execute("SELECT count(*) FROM share_likes WHERE share_id = ?", (share_id,)).fetchone()[0]
+            count = conn.execute("SELECT count(*) FROM share_likes WHERE share_id = ?", (share_id,)).fetchone()[0]
+            likes = max(0, count + row["likes_offset"])
         return JSONResponse({"likes": likes, "liked": not liked})
 
     @app.get("/v1/shares/{share_id}/{kind}")
@@ -846,11 +848,38 @@ def create_app() -> FastAPI:
         with connect() as conn:
             rows = conn.execute(
                 """SELECT shares.*, devices.internal_name,
-                          (SELECT count(*) FROM share_likes WHERE share_id = shares.id) AS likes
+                          max(0, shares.likes_offset + (SELECT count(*) FROM share_likes WHERE share_id = shares.id)) AS likes
                    FROM shares JOIN devices ON devices.id = shares.device_id
                    ORDER BY likes DESC, shares.created_at DESC LIMIT 200"""
             ).fetchall()
         return render(request, "shares.html", page(request, section="shares", shares=rows))
+
+    @app.post("/admin/shares/{share_id}/likes")
+    def set_share_likes(request: Request, share_id: str, likes: int = Form(), csrf: str = Form()) -> RedirectResponse:
+        require_admin(request)
+        check_csrf(request, {"csrf": csrf})
+        if likes < 0 or likes > 1_000_000_000:
+            raise HTTPException(400, "点赞数需在 0 到 1000000000 之间")
+        with connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute("SELECT 1 FROM shares WHERE id = ?", (share_id,)).fetchone() is None:
+                raise HTTPException(404, "共享壁纸不存在")
+            count = conn.execute("SELECT count(*) FROM share_likes WHERE share_id = ?", (share_id,)).fetchone()[0]
+            conn.execute("UPDATE shares SET likes_offset = ? WHERE id = ?", (likes - count, share_id))
+        return RedirectResponse("/admin/shares?msg=点赞数已更新", status_code=303)
+
+    @app.post("/admin/shares/{share_id}/title")
+    def set_share_title(request: Request, share_id: str, title: str = Form(), csrf: str = Form()) -> RedirectResponse:
+        require_admin(request)
+        check_csrf(request, {"csrf": csrf})
+        clean_title = clip(title, 60)
+        if not clean_title:
+            raise HTTPException(400, "请输入壁纸名称")
+        with connect() as conn:
+            result = conn.execute("UPDATE shares SET title = ? WHERE id = ?", (clean_title, share_id))
+            if result.rowcount == 0:
+                raise HTTPException(404, "共享壁纸不存在")
+        return RedirectResponse("/admin/shares?msg=壁纸名称已更新", status_code=303)
 
     @app.post("/admin/shares/{share_id}/delete")
     async def delete_share(request: Request, share_id: str, csrf: str = Form()) -> RedirectResponse:
