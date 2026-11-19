@@ -360,3 +360,36 @@ def test_test_wallpapers_are_hosted_by_backend(client: TestClient, tmp_path: Pat
     client.post('/admin/assets/' + items[0]['id'] + '/delete', data={'csrf': csrf})
     seed_wallpapers()
     assert client.get('/v1/catalog/test').json()['items'] == []
+
+
+def test_folder_upload_creates_series(client: TestClient) -> None:
+    login(client)
+    page = client.get("/admin/categories")
+    csrf = page.text.split('name="csrf" value="', 1)[1].split('"', 1)[0]
+    added = client.post("/admin/categories", data={"title": "系列壁纸", "csrf": csrf, "hidden": "0", "published": "1"})
+    assert added.status_code == 303
+    parent = added.headers["location"].split("collection=", 1)[1].split("&", 1)[0]
+    uploaded = client.post("/admin/assets/batch", data={
+        "csrf": csrf, "collection": parent, "mode": "folders",
+        "paths": ["系列壁纸/海滩/海.jpg", "系列壁纸/城市/城.jpg", "系列壁纸/海滩/海.jpg"],
+    }, files=[
+        ("files", ("海.jpg", jpeg_bytes(), "image/jpeg")),
+        ("files", ("城.jpg", jpeg_bytes(40, 20), "image/jpeg")),
+        ("files", ("海.jpg", jpeg_bytes(), "image/jpeg")),
+    ])
+    assert uploaded.status_code == 200
+    assert uploaded.json() == {"added": 2, "skipped": 1, "failed": 0}
+    titles = [item["title"] for item in client.get("/v1/gallery/categories").json()["items"]]
+    assert "系列壁纸" in titles and "海滩" not in titles and "城市" not in titles
+    groups = client.get(f"/v1/gallery/categories/{parent}/groups").json()["items"]
+    assert [item["title"] for item in groups] == ["海滩", "城市"]
+    assert groups[0]["count"] == 1 and groups[0]["preview_url"]
+    beach = client.get("/v1/catalog/" + groups[0]["id"]).json()["items"]
+    assert beach[0]["title"] == "海"
+    admin = client.get("/admin/assets?collection=" + parent)
+    assert "选择文件夹" in admin.text and "海滩" in admin.text
+    flat = client.post("/admin/assets/batch", data={
+        "csrf": csrf, "collection": groups[1]["id"], "mode": "files", "paths": ["夜.jpg"],
+    }, files=[("files", ("夜.jpg", jpeg_bytes(24, 12), "image/jpeg"))])
+    assert flat.json()["added"] == 1
+    assert client.get("/v1/catalog/" + groups[1]["id"]).json()["items"][-1]["title"] == "夜"

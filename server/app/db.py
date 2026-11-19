@@ -131,11 +131,13 @@ def init_db() -> None:
         conn.execute("""CREATE TABLE IF NOT EXISTS gallery_categories (
             id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL,
             sort_order INTEGER NOT NULL, hidden INTEGER NOT NULL DEFAULT 0,
-            published INTEGER NOT NULL DEFAULT 1
+            published INTEGER NOT NULL DEFAULT 1, parent_id TEXT
         )""")
         category_columns = {row[1] for row in conn.execute("PRAGMA table_info(gallery_categories)")}
         if "published" not in category_columns:
             conn.execute("ALTER TABLE gallery_categories ADD COLUMN published INTEGER NOT NULL DEFAULT 1")
+        if "parent_id" not in category_columns:
+            conn.execute("ALTER TABLE gallery_categories ADD COLUMN parent_id TEXT")
         conn.execute("CREATE TABLE IF NOT EXISTS seeded_files (key TEXT PRIMARY KEY)")
         for order, (key, title, kind, hidden) in enumerate([
             ("stock", "默认壁纸", "stock", 0), ("share", "精选壁纸", "share", 0),

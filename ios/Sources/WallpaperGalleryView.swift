@@ -164,6 +164,7 @@ struct WallpaperGalleryView: View {
         case "commons": CommonsWallpaperGalleryView(use: use)
         case "buick": BuickWallpaperGalleryView(use: use)
         case "test": ServerWallpaperGalleryView(category: category, use: use)
+        case "series": SeriesGalleryView(category: category, use: use)
         default: ServerWallpaperGalleryView(category: category, use: use)
         }
     }

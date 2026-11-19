@@ -10,7 +10,8 @@
   'commons': '主题搜图',
   'buick': '别克车机',
   'test': '测试图库',
-  'catalog': '上传壁纸'
+  'catalog': '上传壁纸',
+  'series': '系列壁纸'
 } %}
 <style>
   .cat-create { padding: 18px 20px 20px; margin-bottom: 16px; }
@@ -74,7 +75,7 @@
 </form>
 
 <div class="cat-list">
-  {% for category in gallery_categories %}
+  {% for category in gallery_categories if not category.parent_id %}
   <form class="cv-panel cat-card" method="post" action="/admin/categories/{{ category.id }}">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="cat-head">

@@ -182,9 +182,12 @@
     <nav class="cv-nav collapse show" id="cv-nav">
       <a class="{% if section == 'overview' %}active{% endif %}" href="/admin"><svg class="cv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>概览</a>
       <div class="cv-group">
-        {% set ns = namespace(open=section == 'categories' or section == 'shares') %}
+        {% set ns = namespace(open=section == 'categories' or section == 'shares', parent='') %}
         {% for category in gallery_categories %}
-          {% if section == category.id %}{% set ns.open = true %}{% endif %}
+          {% if section == category.id %}
+            {% set ns.open = true %}
+            {% if category.parent_id %}{% set ns.parent = category.parent_id %}{% endif %}
+          {% endif %}
         {% endfor %}
         <button class="cv-fold{% if ns.open %} open{% endif %}" type="button" aria-expanded="{{ 'true' if ns.open else 'false' }}" aria-controls="cv-gallery">
           <svg class="cv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7.5V18a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-7l-2-2H5a2 2 0 0 0-2 2.5z"/></svg>
@@ -192,9 +195,9 @@
           <svg class="cv-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
         </button>
         <div class="cv-fold-panel" id="cv-gallery" data-here="{{ '1' if ns.open else '0' }}"{% if not ns.open %} hidden{% endif %}>
-          {% for category in gallery_categories %}
-          <a class="cv-sub {% if section == category.id or (category.kind == 'share' and section == 'shares') %}active{% endif %}"
-             href="{% if category.kind == 'share' %}/admin/shares{% elif category.kind in ['catalog', 'buick', 'test', 'stock'] %}/admin/assets?collection={{ category.id }}{% else %}/admin/categories/{{ category.id }}/source{% endif %}"><span class="cv-nav-label">{{ category.title }}</span>{% if not category.published %}<span class="cv-nav-flag">下架</span>{% endif %}{% if category.hidden %}<span class="cv-nav-flag">隐藏</span>{% endif %}</a>
+          {% for category in gallery_categories if not category.parent_id %}
+          <a class="cv-sub {% if section == category.id or ns.parent == category.id or (category.kind == 'share' and section == 'shares') %}active{% endif %}"
+             href="{% if category.kind == 'share' %}/admin/shares{% elif category.kind in ['catalog', 'buick', 'test', 'stock', 'series'] %}/admin/assets?collection={{ category.id }}{% else %}/admin/categories/{{ category.id }}/source{% endif %}"><span class="cv-nav-label">{{ category.title }}</span>{% if not category.published %}<span class="cv-nav-flag">下架</span>{% endif %}{% if category.hidden %}<span class="cv-nav-flag">隐藏</span>{% endif %}</a>
           {% endfor %}
           <a class="cv-sub {% if section == 'categories' %}active{% endif %}" href="/admin/categories">管理分类</a>
         </div>

@@ -3,6 +3,52 @@
 {% block page_title %}{{ title }}{% endblock %}
 {% block page_note %}切到「发布」后会出现在 App 里，切到「下架」后 App 不再显示。点图片可查看原图。{% endblock %}
 {% block body %}
+<style>
+  .batch-board { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; padding: 16px; margin-bottom: 14px; }
+  .batch-drop {
+    min-height: 148px; padding: 18px; border-radius: 22px; background: #f3f7f8;
+    display: flex; flex-direction: column; justify-content: center; gap: 8px;
+  }
+  .batch-drop strong { font-size: 16px; }
+  .batch-drop p { margin: 0; color: #6b7787; font-size: 13px; line-height: 1.5; }
+  .batch-drop.over { outline: 2px solid #0b7a86; }
+  .series-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-bottom: 16px; }
+  .series-card { display: block; overflow: hidden; color: inherit; text-decoration: none; border-radius: 22px; }
+  .series-card img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #e7eef2; display: block; }
+  .series-card div { padding: 12px 14px 14px; }
+  .series-card strong { display: block; }
+  .series-card span { color: #6b7787; font-size: 13px; }
+  #batch-status { grid-column: 1 / -1; margin: 0; color: #0b7a86; }
+</style>
+<div class="cv-panel batch-board" id="batch-box" data-collection="{{ collection }}" data-csrf="{{ csrf }}" data-folders="{{ 1 if can_folders else 0 }}">
+  {% if can_folders %}
+  <div class="batch-drop" id="batch-drop">
+    <strong>上传文件夹</strong>
+    <p>把总文件夹拖进来，或一次选中它。每个子文件夹会成为一个系列，不用再一个个传。</p>
+    <div><button class="btn btn-primary" id="pick-folder" type="button">选择文件夹</button></div>
+    <input id="folder-input" type="file" webkitdirectory multiple hidden>
+  </div>
+  {% endif %}
+  <div class="batch-drop">
+    <strong>批量上传图片</strong>
+    <p>一次选择多张 JPEG 或 PNG，名称使用文件名，放进当前分类。</p>
+    <input class="form-control" id="files-input" type="file" accept="image/jpeg,image/png" multiple>
+  </div>
+  <p id="batch-status"></p>
+</div>
+{% if groups %}
+<div class="series-grid">
+  {% for group in groups %}
+  <a class="cv-panel series-card" href="/admin/assets?collection={{ group.id }}">
+    {% if group.cover %}<img src="/admin/assets/{{ group.cover }}/preview" alt="">{% endif %}
+    <div>
+      <strong>{{ group.title }}</strong>
+      <span>{{ group.count }} 张{% if not group.published %} · 已下架{% endif %}{% if group.hidden %} · 隐藏{% endif %}</span>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
 <div class="cv-panel mb-3">
   <form class="row g-3 align-items-end p-3" method="post" action="/admin/assets" enctype="multipart/form-data">
     <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -72,7 +118,101 @@
     </article>
   </div>
   {% else %}
-  <div class="col-12"><div class="cv-panel p-4 text-secondary">还没有壁纸。上传后，App 下次打开时会拉取。</div></div>
+  <div class="col-12"><div class="cv-panel p-4 text-secondary">{% if groups %}这个系列下面还没有未分组的图片。{% else %}还没有壁纸。上传后，App 下次打开时会拉取。{% endif %}</div></div>
   {% endfor %}
 </div>
+<script>
+(() => {
+  const box = document.getElementById("batch-box");
+  if (!box) return;
+  const status = document.getElementById("batch-status");
+  const allowFolders = box.dataset.folders === "1";
+  const imageName = (name) => /\.(jpe?g|png)$/i.test(name);
+
+  async function send(items, mode) {
+    let added = 0, skipped = 0, failed = 0;
+    const chunk = 8;
+    for (let index = 0; index < items.length; index += chunk) {
+      const slice = items.slice(index, index + chunk);
+      status.textContent = `正在上传 ${Math.min(index + chunk, items.length)} / ${items.length}`;
+      const body = new FormData();
+      body.append("csrf", box.dataset.csrf);
+      body.append("collection", box.dataset.collection);
+      body.append("mode", mode);
+      slice.forEach((item) => {
+        body.append("files", item.file, item.file.name);
+        body.append("paths", item.path || item.file.name);
+      });
+      const response = await fetch("/admin/assets/batch", { method: "POST", body });
+      if (!response.ok) {
+        status.textContent = "上传失败，请刷新后重试";
+        return;
+      }
+      const payload = await response.json();
+      added += payload.added; skipped += payload.skipped; failed += payload.failed;
+    }
+    const params = new URLSearchParams(location.search);
+    params.set("msg", `已上传 ${added} 张，跳过 ${skipped} 张${failed ? `，失败 ${failed} 张` : ""}`);
+    location.search = params.toString();
+  }
+
+  function fromList(list, folderMode) {
+    const items = [];
+    for (const file of list) {
+      if (!imageName(file.name)) continue;
+      items.push({ file, path: file.webkitRelativePath || file.name });
+    }
+    if (!items.length) { status.textContent = "没有 JPEG 或 PNG"; return; }
+    const nested = allowFolders && folderMode && items.some((item) => item.path.includes("/"));
+    send(items, nested ? "folders" : "files");
+  }
+
+  document.getElementById("files-input").addEventListener("change", (event) => fromList(event.target.files, false));
+  const folderInput = document.getElementById("folder-input");
+  const pick = document.getElementById("pick-folder");
+  if (folderInput && pick) {
+    pick.addEventListener("click", () => folderInput.click());
+    folderInput.addEventListener("change", (event) => fromList(event.target.files, true));
+  }
+
+  async function filesFromEntry(entry, prefix) {
+    if (entry.isFile) {
+      const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+      return imageName(file.name) ? [{ file, path: prefix + file.name }] : [];
+    }
+    if (!entry.isDirectory) return [];
+    const reader = entry.createReader();
+    const children = [];
+    while (true) {
+      const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+      if (!batch.length) break;
+      children.push(...batch);
+    }
+    const found = [];
+    for (const child of children) found.push(...await filesFromEntry(child, prefix + entry.name + "/"));
+    return found;
+  }
+
+  const drop = document.getElementById("batch-drop");
+  if (!drop) return;
+  ["dragenter", "dragover"].forEach((name) => drop.addEventListener(name, (event) => {
+    event.preventDefault();
+    drop.classList.add("over");
+  }));
+  ["dragleave", "drop"].forEach((name) => drop.addEventListener(name, (event) => {
+    event.preventDefault();
+    drop.classList.remove("over");
+  }));
+  drop.addEventListener("drop", async (event) => {
+    const found = [];
+    const items = event.dataTransfer.items || [];
+    for (const item of items) {
+      const entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
+      if (entry) found.push(...await filesFromEntry(entry, ""));
+    }
+    if (!found.length) { status.textContent = "没有 JPEG 或 PNG"; return; }
+    send(found, allowFolders ? "folders" : "files");
+  });
+})();
+</script>
 {% endblock %}

@@ -163,3 +163,106 @@ struct ServerWallpaperGalleryView: View {
         }
     }
 }
+
+struct SeriesGroup: Decodable, Identifiable, Hashable {
+    let id: String
+    let title: String
+    let hidden: Int
+    let count: Int
+    let previewURL: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, hidden, count
+        case previewURL = "preview_url"
+    }
+
+    var cover: URL? { previewURL.isEmpty ? nil : URL(string: previewURL) }
+}
+
+struct SeriesGalleryView: View {
+    let category: GalleryCategory
+    let use: (GalleryPick) -> Void
+    @EnvironmentObject private var model: WorkshopModel
+    @State private var groups: [SeriesGroup] = []
+    @State private var selected: SeriesGroup?
+    @State private var loading = false
+    @State private var problem: String?
+
+    private var visibleGroups: [SeriesGroup] {
+        groups.filter { $0.hidden == 0 || model.photoDownloadUnlocked }
+    }
+
+    var body: some View {
+        Group {
+            if let selected {
+                VStack(spacing: 0) {
+                    HStack {
+                        Button { self.selected = nil } label: {
+                            Label("全部系列", systemImage: "chevron.left").font(.subheadline.weight(.medium))
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                        Text(selected.title).font(.headline).lineLimit(1)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    ServerWallpaperGalleryView(
+                        category: GalleryCategory(id: selected.id, title: selected.title, kind: "catalog", hidden: 0),
+                        use: use
+                    )
+                }
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        if let problem { Text(problem).font(.footnote).foregroundStyle(.secondary) }
+                        if loading && groups.isEmpty { ProgressView("正在加载…") }
+                        if !loading && visibleGroups.isEmpty && problem == nil {
+                            ContentUnavailableView("还没有系列", systemImage: "rectangle.stack", description: Text("在后台上传文件夹后，每个子文件夹会显示在这里。"))
+                        }
+                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())], spacing: 16) {
+                            ForEach(visibleGroups) { group in
+                                Button { selected = group } label: {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        GalleryImage(url: group.cover, mode: .fill)
+                                            .aspectRatio(16 / 9, contentMode: .fit)
+                                            .frame(maxWidth: .infinity)
+                                            .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 16))
+                                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                                        Text(group.title).font(.subheadline).lineLimit(1)
+                                        Text("\(group.count) 张").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .padding(16)
+                    .frame(maxWidth: 720)
+                    .frame(maxWidth: .infinity)
+                }
+                .refreshable { await reload() }
+            }
+        }
+        .task(id: category.id) { await reload() }
+    }
+
+    private func reload() async {
+        guard !loading else { return }
+        loading = true
+        defer { loading = false }
+        var request = URLRequest(url: ServiceGate.join("v1/gallery/categories/\(category.id)/groups"), timeoutInterval: 12)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw URLError(.badServerResponse) }
+            groups = try JSONDecoder().decode(GroupFeed.self, from: data).items
+            problem = nil
+            if let selected, !groups.contains(selected) { self.selected = nil }
+        } catch {
+            problem = "无法加载系列，请下拉重试。"
+        }
+    }
+
+    private struct GroupFeed: Decodable { let items: [SeriesGroup] }
+}

@@ -181,9 +181,33 @@ def create_app() -> FastAPI:
         with connect() as conn:
             rows = conn.execute(
                 """SELECT id, title, kind, hidden, published FROM gallery_categories
-                   WHERE published = 1 ORDER BY sort_order, id"""
+                   WHERE published = 1 AND parent_id IS NULL ORDER BY sort_order, id"""
             ).fetchall()
         return JSONResponse({"items": [dict(row) for row in rows]}, headers={"Cache-Control": "no-store"})
+
+    @app.get("/v1/gallery/categories/{category_id}/groups")
+    def category_groups(category_id: str, request: Request) -> JSONResponse:
+        base = public_base(request)
+        with connect() as conn:
+            parent = conn.execute(
+                "SELECT id, kind FROM gallery_categories WHERE id = ? AND published = 1 AND parent_id IS NULL",
+                (category_id,),
+            ).fetchone()
+            if parent is None:
+                raise HTTPException(404)
+            children = conn.execute(
+                """SELECT id, title, hidden FROM gallery_categories
+                   WHERE parent_id = ? AND published = 1 ORDER BY sort_order, id""",
+                (category_id,),
+            ).fetchall()
+            items = [group_payload(conn, row["id"], row["title"], row["hidden"], base) for row in children]
+            loose = conn.execute(
+                "SELECT COUNT(*) FROM assets WHERE collection = ? AND published = 1",
+                (category_id,),
+            ).fetchone()[0]
+            if loose:
+                items.append(group_payload(conn, category_id, "未分组", 0, base))
+        return JSONResponse({"items": items}, headers={"Cache-Control": "no-store"})
 
     @app.get("/admin/categories", response_class=HTMLResponse)
     def category_list(request: Request) -> HTMLResponse:
@@ -245,7 +269,7 @@ def create_app() -> FastAPI:
         with connect() as conn:
             if stored != "builtin" and conn.execute(
                 """SELECT 1 FROM gallery_categories
-                   WHERE id = ? AND published = 1 AND kind IN ('catalog', 'buick', 'test', 'stock')""",
+                   WHERE id = ? AND published = 1 AND kind IN ('catalog', 'buick', 'test', 'stock', 'series')""",
                 (stored,),
             ).fetchone() is None:
                 raise HTTPException(404)
@@ -478,15 +502,66 @@ def create_app() -> FastAPI:
     def asset_list(request: Request, collection: str = "builtin") -> HTMLResponse:
         require_admin(request)
         with connect() as conn:
-            category = conn.execute("SELECT * FROM gallery_categories WHERE id = ? AND kind IN ('catalog', 'buick', 'test', 'stock')", (collection,)).fetchone()
+            category = conn.execute(
+                "SELECT * FROM gallery_categories WHERE id = ? AND kind IN ('catalog', 'buick', 'test', 'stock', 'series')",
+                (collection,),
+            ).fetchone()
             if category is None and collection != "builtin":
                 raise HTTPException(404)
             rows = conn.execute(
                 "SELECT * FROM assets WHERE collection = ? ORDER BY sort_order, created_at",
                 (collection,),
             ).fetchall()
-        return render(request, "assets.html", page(request, section=collection, collection=collection,
-                      title=category["title"] if category else COLLECTIONS["builtin"], assets=rows))
+            groups = group_rows(conn, collection) if category and not category["parent_id"] else []
+        can_folders = bool(category and not category["parent_id"] and category["kind"] in {"catalog", "series"})
+        return render(request, "assets.html", page(
+            request, section=collection, collection=collection,
+            title=category["title"] if category else COLLECTIONS["builtin"], assets=rows,
+            groups=groups, can_folders=can_folders,
+        ))
+
+    @app.post("/admin/assets/batch")
+    async def batch_assets(request: Request) -> JSONResponse:
+        require_admin(request)
+        form = await request.form()
+        check_csrf(request, form)
+        collection = str(form.get("collection") or "")
+        mode = str(form.get("mode") or "files")
+        uploads = [item for item in form.getlist("files") if hasattr(item, "read")]
+        paths = [str(item) for item in form.getlist("paths")]
+        if len(uploads) > 40:
+            raise HTTPException(400, "一次最多上传 40 张")
+        with connect() as conn:
+            category = conn.execute("SELECT * FROM gallery_categories WHERE id = ?", (collection,)).fetchone()
+            if category is None and collection != "builtin":
+                raise HTTPException(400, "分类不存在")
+            added = skipped = failed = 0
+            for index, upload in enumerate(uploads):
+                path = paths[index] if index < len(paths) else (upload.filename or "")
+                filename = upload.filename or path.rsplit("/", 1)[-1]
+                if Path(filename).suffix.lower() not in {".jpg", ".jpeg", ".png"}:
+                    failed += 1
+                    continue
+                data = await upload.read()
+                target = collection
+                if mode == "folders" and category and not category["parent_id"] and category["kind"] in {"catalog", "series"}:
+                    folder = series_folder(path)
+                    if folder is None:
+                        failed += 1
+                        continue
+                    if folder:
+                        target = ensure_series(conn, collection, folder)
+                title = clip(Path(filename).stem, 60) or "壁纸"
+                try:
+                    outcome = save_asset(conn, target, title, filename, data)
+                except images.ImageRejected:
+                    failed += 1
+                    continue
+                if outcome == "added":
+                    added += 1
+                else:
+                    skipped += 1
+        return JSONResponse({"added": added, "skipped": skipped, "failed": failed})
 
     @app.post("/admin/assets")
     async def create_asset(
@@ -500,7 +575,10 @@ def create_app() -> FastAPI:
         require_admin(request)
         check_csrf(request, {"csrf": csrf})
         with connect() as conn:
-            valid = conn.execute("SELECT 1 FROM gallery_categories WHERE id = ? AND kind IN ('catalog', 'buick', 'test', 'stock')", (collection,)).fetchone()
+            valid = conn.execute(
+                "SELECT 1 FROM gallery_categories WHERE id = ? AND kind IN ('catalog', 'buick', 'test', 'stock', 'series')",
+                (collection,),
+            ).fetchone()
         if not valid and collection != "builtin":
             raise HTTPException(400, "分类不存在或不支持上传")
         clean_title = clip(title.strip(), 60)
@@ -1096,6 +1174,109 @@ def new_internal_name(conn) -> str:
 
 def clip(value, limit: int) -> str:
     return str(value or "").strip()[:limit]
+
+
+def series_folder(path: str) -> str | None:
+    parts = [part for part in str(path).replace("\\", "/").split("/") if part not in {"", ".", ".."}]
+    if any(part == "__MACOSX" or part.startswith(".") for part in parts):
+        return None
+    if len(parts) < 2:
+        return ""
+    return clip(parts[-2], 60)
+
+
+def ensure_series(conn, parent_id: str, title: str) -> str:
+    row = conn.execute(
+        "SELECT id FROM gallery_categories WHERE parent_id = ? AND title = ?",
+        (parent_id, title),
+    ).fetchone()
+    if row:
+        return row["id"]
+    key = "series-" + uuid.uuid4().hex[:12]
+    order = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM gallery_categories WHERE parent_id = ?",
+        (parent_id,),
+    ).fetchone()[0]
+    conn.execute(
+        """INSERT INTO gallery_categories
+           (id, title, kind, sort_order, hidden, published, parent_id)
+           VALUES (?, ?, 'catalog', ?, 0, 1, ?)""",
+        (key, title, order, parent_id),
+    )
+    conn.execute(
+        "UPDATE gallery_categories SET kind = 'series' WHERE id = ? AND kind = 'catalog'",
+        (parent_id,),
+    )
+    return key
+
+
+def save_asset(conn, collection: str, title: str, filename: str, data: bytes) -> str:
+    digest = hashlib.sha256(data).hexdigest()
+    if conn.execute(
+        "SELECT 1 FROM assets WHERE collection = ? AND content_hash = ?",
+        (collection, digest),
+    ).fetchone():
+        return "skipped"
+    asset_id = str(uuid.uuid4())
+    suffix = ".png" if Path(filename).suffix.lower() == ".png" else ".jpg"
+    folder = data_dir() / "media" / asset_id
+    original = folder / f"original{suffix}"
+    preview = folder / "preview.jpg"
+    width, height = images.store_original(data, original, preview)
+    stamp = now()
+    order = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM assets WHERE collection = ?",
+        (collection,),
+    ).fetchone()[0]
+    conn.execute(
+        """INSERT INTO assets
+           (id, collection, title, sort_order, published, original_path, preview_path,
+            width, height, bytes, content_hash, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (asset_id, collection, title, order, str(original), str(preview),
+         width, height, len(data), digest, stamp, stamp),
+    )
+    return "added"
+
+
+def group_rows(conn, parent_id: str) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM gallery_categories WHERE parent_id = ? ORDER BY sort_order, id",
+        (parent_id,),
+    ).fetchall()
+    return [admin_group(conn, row) for row in rows]
+
+
+def admin_group(conn, row) -> dict:
+    cover = conn.execute(
+        """SELECT id FROM assets WHERE collection = ? AND published = 1
+           ORDER BY sort_order, created_at LIMIT 1""",
+        (row["id"],),
+    ).fetchone()
+    count = conn.execute("SELECT COUNT(*) FROM assets WHERE collection = ?", (row["id"],)).fetchone()[0]
+    item = dict(row)
+    item["count"] = count
+    item["cover"] = cover["id"] if cover else ""
+    return item
+
+
+def group_payload(conn, collection: str, title: str, hidden: int, base: str) -> dict:
+    count = conn.execute(
+        "SELECT COUNT(*) FROM assets WHERE collection = ? AND published = 1",
+        (collection,),
+    ).fetchone()[0]
+    cover = conn.execute(
+        """SELECT id FROM assets WHERE collection = ? AND published = 1
+           ORDER BY sort_order, created_at LIMIT 1""",
+        (collection,),
+    ).fetchone()
+    return {
+        "id": collection,
+        "title": title,
+        "hidden": hidden,
+        "count": count,
+        "preview_url": f"{base}/v1/media/{cover['id']}/preview" if cover else "",
+    }
 
 
 def category_flags(hidden: str, published: str) -> tuple[int, int]:
