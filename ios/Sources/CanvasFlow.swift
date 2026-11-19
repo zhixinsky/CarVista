@@ -170,10 +170,10 @@ struct CanvasHistoryView: View {
                             TextField("写一段介绍，可以留空", text: $shareText, axis: .vertical)
                                 .lineLimit(3...6)
                         } footer: {
-                            Text("介绍会显示在图库的共享壁纸里。")
+                            Text("介绍会显示在图库的精选壁纸里。")
                         }
                     }
-                    .navigationTitle("共享壁纸")
+                    .navigationTitle("精选壁纸")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) { Button("取消") { shareTarget = nil } }
@@ -199,7 +199,7 @@ struct CanvasHistoryView: View {
         Task {
             defer { sharingID = nil }
             let ok = await ServiceClient.shared.submitShare(shown, title: title.isEmpty ? collection.title : title, description: intro, author: author)
-            shareNotes[collection.id] = ok ? "已共享到图库的「共享壁纸」。" : "共享失败，请检查网络后重试。"
+            shareNotes[collection.id] = ok ? "已共享到图库的「精选壁纸」。" : "共享失败，请检查网络后重试。"
         }
     }
 }
@@ -280,7 +280,7 @@ struct WallpaperDetailView: View {
                             Text("介绍会显示在图库的共享分类里。")
                         }
                     }
-                    .navigationTitle(editingShare ? "编辑共享" : "共享壁纸")
+                    .navigationTitle(editingShare ? "编辑共享" : "精选壁纸")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) { Button("取消") { shareDraft = false }.disabled(sharing) }
@@ -351,7 +351,7 @@ struct WallpaperDetailView: View {
             }
             if ok {
                 shareDraft = false
-                shareNote = editing ? "共享信息已更新。" : "已共享到图库的「共享壁纸」。"
+                shareNote = editing ? "共享信息已更新。" : "已共享到图库的「精选壁纸」。"
             } else {
                 shareNote = "操作失败，请检查网络后重试。"
             }
@@ -547,7 +547,7 @@ struct CanvasGuideView: View {
     @Environment(\.dismiss) private var dismiss
     private let steps = [
         ("生成车机壁纸缓存", "停车后，在车机 CarPlay 的“设置 → 壁纸”中切换几张内置图片壁纸。不同系统的排列可能不同。"),
-        ("选择照片", "在“壁纸”里选相册照片，或点“共享壁纸”查看大家共享的壁纸。需要裁剪时点“裁剪”。"),
+        ("选择照片", "在“壁纸”里选相册照片，或点“精选壁纸”查看大家共享的壁纸。需要裁剪时点“裁剪”。"),
         ("选择目标并应用", "点“应用到 CarPlay”即可生成文件并选择替换目标，原文件会自动备份。历史记录在底部菜单，壁纸缓存位于“壁纸”右上角。"),
         ("重启 CarPlay，让壁纸生效", "替换后点“重启 CarPlay”，尝试重载系统界面。返回桌面后重新连接车机，确认新壁纸是否生效。若仍显示旧图，请手动重启 iPhone。需要还原时，可在设置中打开“备份与恢复”。")]
     var body: some View {

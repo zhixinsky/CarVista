@@ -12,7 +12,7 @@ struct GalleryCategory: Codable, Identifiable, Hashable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
     static let stock = Self(id: "stock", title: "默认壁纸", kind: "stock", hidden: 0)
-    static let share = Self(id: "share", title: "共享壁纸", kind: "share", hidden: 0)
+    static let share = Self(id: "share", title: "精选壁纸", kind: "share", hidden: 0)
     static let bing = Self(id: "bing", title: "必应壁纸", kind: "bing", hidden: 0)
     static let commons = Self(id: "commons", title: "主题搜图", kind: "commons", hidden: 0)
     static let buick = Self(id: "buick_gallery", title: "别克车机壁纸", kind: "buick", hidden: 0)

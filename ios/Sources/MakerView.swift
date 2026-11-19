@@ -96,72 +96,75 @@ struct ComposeWallpaperView: View {
                             Text("输出 \(outputLabel)").font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("maker.output")
                         }
                     }
-                    HStack(spacing: 6) {
-                        PhotosPicker(selection: $selection, matching: .images) {
-                            if photo == nil {
-                                Label("相册", systemImage: "photo.badge.plus").frame(maxWidth: .infinity)
-                            } else {
-                                ViewThatFits(in: .horizontal) {
-                                    Text("更换照片").fixedSize()
-                                    Text("换图").fixedSize()
-                                    Image(systemName: "photo.badge.plus")
-                                }
-                            }
-                        }.buttonStyle(.borderedProminent).disabled(locked).accessibilityIdentifier("maker.select")
-                            .accessibilityLabel(photo == nil ? "相册" : "更换照片")
-                        if photo != nil {
-                            Button("裁剪调色") { adjusting = true }.buttonStyle(.bordered).disabled(locked)
-                                .accessibilityIdentifier("maker.adjust")
-                                .fixedSize(horizontal: true, vertical: false)
-                            if model.photoDownloadUnlocked {
-                                Button { downloadPhoto() } label: {
-                                    if savingPhoto {
-                                        ProgressView().accessibilityLabel("正在保存到相册")
-                                    } else {
-                                        ViewThatFits(in: .horizontal) {
-                                            Text("下载").fixedSize()
-                                            Image(systemName: "arrow.down.to.line")
-                                        }
-                                    }
-                                }.buttonStyle(.bordered).disabled(locked)
-                                    .accessibilityIdentifier("maker.download")
-                                    .accessibilityLabel(savingPhoto ? "正在保存到相册" : "下载")
-                                    .accessibilityHint("保存调整后的照片到相册")
-                            }
-                            Spacer(minLength: 0)
-                            Button(role: .destructive) { removeCurrent() } label: { Image(systemName: "trash") }
-                                .buttonStyle(.bordered).disabled(locked).accessibilityLabel("移除当前照片")
-                        } else {
-                            if let openGallery { Button("在线图库", action: openGallery).buttonStyle(.bordered) }
-                        }
-                    }.controlSize(.small)
-                    if loading { ProgressView("正在导入照片…") }
                     if let photo {
-                        HStack(spacing: 6) {
-                            Button { generate() } label: {
-                                Text("生成壁纸")
-                            }.buttonStyle(.bordered).tint(.indigo).disabled(locked)
-                                .accessibilityIdentifier("wallpaper.generate")
-                            let shared = generated[photo.id]?.contains { sharedHistory.split(separator: "|").contains(Substring($0.id.uuidString)) } ?? false
-                            Button(shared ? "已共享" : "共享壁纸") { prepareShare() }
-                                .buttonStyle(.bordered).disabled(locked || shared)
-                            Button { prepareCurrentWallpaper() } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "car.side.fill")
-                                    Text("应用到 CarPlay")
+                        let shared = generated[photo.id]?.contains { sharedHistory.split(separator: "|").contains(Substring($0.id.uuidString)) } ?? false
+                        VStack(spacing: 6) {
+                            HStack(spacing: 6) {
+                                PhotosPicker(selection: $selection, matching: .images) {
+                                    Text("更换壁纸").lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity)
+                                }.buttonStyle(.borderedProminent).disabled(locked).accessibilityIdentifier("maker.select")
+                                    .accessibilityLabel("更换壁纸")
+                                Button { adjusting = true } label: {
+                                    Text("裁剪调色").lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity)
+                                }.buttonStyle(.bordered).disabled(locked)
+                                    .accessibilityIdentifier("maker.adjust")
+                                Button { prepareShare() } label: {
+                                    Text(shared ? "已共享" : "分享壁纸").lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity)
+                                }.buttonStyle(.bordered).disabled(locked || shared)
+                                    .accessibilityIdentifier("wallpaper.share")
+                                if model.photoDownloadUnlocked {
+                                    Button { downloadPhoto() } label: {
+                                        if savingPhoto {
+                                            ProgressView().accessibilityLabel("正在保存到相册")
+                                        } else {
+                                            Text("下载").lineLimit(1)
+                                        }
+                                    }.buttonStyle(.bordered).disabled(locked)
+                                        .accessibilityIdentifier("maker.download")
+                                        .accessibilityLabel(savingPhoto ? "正在保存到相册" : "下载")
+                                        .accessibilityHint("保存调整后的照片到相册")
+                                        .fixedSize(horizontal: true, vertical: false)
                                 }
-                                .frame(maxWidth: .infinity, minHeight: 32)
-                                .padding(.horizontal, 6)
-                                .background(CanvasTheme.accent, in: RoundedRectangle(cornerRadius: 8))
-                                .foregroundStyle(.white)
-                                .opacity(locked ? 0.5 : 1)
-                            }.buttonStyle(.plain).disabled(locked)
+                                Button(role: .destructive) { removeCurrent() } label: { Image(systemName: "trash") }
+                                    .buttonStyle(.bordered).disabled(locked).accessibilityLabel("移除当前照片")
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
+                            GeometryReader { geo in
+                                let gap: CGFloat = 6
+                                let unit = (geo.size.width - gap) / 3
+                                HStack(spacing: gap) {
+                                    Button { generate() } label: {
+                                        Text("生成壁纸").lineLimit(1).minimumScaleFactor(0.7)
+                                            .frame(maxWidth: .infinity, minHeight: 32)
+                                    }.buttonStyle(.bordered).tint(.indigo).disabled(locked)
+                                        .accessibilityIdentifier("wallpaper.generate")
+                                        .frame(width: unit)
+                                    Button { prepareCurrentWallpaper() } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "car.side.fill")
+                                            Text("应用到 CarPlay").lineLimit(1).minimumScaleFactor(0.7)
+                                        }
+                                        .frame(maxWidth: .infinity, minHeight: 32)
+                                        .background(CanvasTheme.accent, in: RoundedRectangle(cornerRadius: 8))
+                                        .foregroundStyle(.white)
+                                        .opacity(locked ? 0.5 : 1)
+                                    }.buttonStyle(.plain).disabled(locked)
+                                        .frame(width: unit * 2)
+                                }
+                            }.frame(height: 36)
                         }
                         .font(.system(size: 13, weight: .medium))
                         .controlSize(.small)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                    } else {
+                        HStack(spacing: 6) {
+                            PhotosPicker(selection: $selection, matching: .images) {
+                                Label("相册", systemImage: "photo.badge.plus").frame(maxWidth: .infinity)
+                            }.buttonStyle(.borderedProminent).disabled(locked).accessibilityIdentifier("maker.select")
+                                .accessibilityLabel("相册")
+                            if let openGallery { Button("在线图库", action: openGallery).buttonStyle(.bordered) }
+                        }.controlSize(.small)
                     }
+                    if loading { ProgressView("正在导入照片…") }
                     if let problem { Text(problem).font(.subheadline).foregroundStyle(.red) }
                 }.padding(16).frame(maxWidth: .infinity)
                     .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
@@ -170,7 +173,7 @@ struct ComposeWallpaperView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Button { openShared?() } label: {
                         HStack {
-                            Text("共享壁纸").font(.headline)
+                            Text("精选壁纸").font(.headline)
                             Spacer()
                             Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                         }
@@ -341,11 +344,11 @@ struct ComposeWallpaperView: View {
             return
         }
         guard let remote = await ServiceClient.shared.fetchShares() else {
-            sharedNote = sharedTop.isEmpty ? "无法加载共享壁纸。" : ""
+            sharedNote = sharedTop.isEmpty ? "无法加载精选壁纸。" : ""
             return
         }
         sharedTop = Array(remote.prefix(10))
-        sharedNote = remote.isEmpty ? "还没有人共享壁纸。" : ""
+        sharedNote = remote.isEmpty ? "还没有人精选壁纸。" : ""
     }
 
     private func applyShared(_ item: SharedWallpaper) {

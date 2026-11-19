@@ -115,11 +115,11 @@ struct SharedWallpaperGalleryView: View {
             return
         }
         guard let remote = await ServiceClient.shared.fetchShares() else {
-            note = items.isEmpty ? "无法加载共享壁纸。" : ""
+            note = items.isEmpty ? "无法加载精选壁纸。" : ""
             return
         }
         items = remote
-        note = remote.isEmpty ? "还没有人共享壁纸。" : "按点赞数排列，点图片可选为当前壁纸。"
+        note = remote.isEmpty ? "还没有人精选壁纸。" : "按点赞数排列，点图片可选为当前壁纸。"
     }
 
     private func like(_ item: SharedWallpaper) {
