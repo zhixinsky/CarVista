@@ -73,11 +73,11 @@ struct CanvasHomeView: View {
             .tabItem { Label("壁纸", systemImage: "photo.on.rectangle") }.tag(Tab.wallpaper)
 
             NavigationStack {
-                WallpaperGalleryView(source: $gallerySource) { pick in
+                WallpaperGalleryView(use: { pick in
                     galleryImport = GalleryImport(data: pick.data, source: pick.source, assetID: pick.assetID)
                     wallpaperPath.removeAll()
                     tab = .wallpaper
-                }
+                }, source: $gallerySource)
             }
             .tabItem { Label("图库", systemImage: "photo.stack") }.tag(Tab.gallery)
 
