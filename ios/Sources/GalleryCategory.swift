@@ -63,26 +63,45 @@ struct ServerWallpaperGalleryView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 16) {
                 if let problem { Text(problem).font(.footnote).foregroundStyle(.secondary) }
                 if loading && items.isEmpty { ProgressView("正在加载…") }
                 if !loading && items.isEmpty && problem == nil {
                     ContentUnavailableView("暂无壁纸", systemImage: "photo")
                 }
-                ForEach(items) { item in
-                    Button { select(item) } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            CatalogThumb(item: item).clipShape(RoundedRectangle(cornerRadius: 12))
-                            Text(item.title).font(.subheadline)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                if category.kind == "stock" {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())], spacing: 16) {
+                        ForEach(items) { item in wallpaperButton(item) }
                     }
-                    .buttonStyle(.plain).disabled(importing || model.busy)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        ForEach(items) { item in wallpaperButton(item) }
+                    }
                 }
             }.padding(16).frame(maxWidth: 720).frame(maxWidth: .infinity)
         }
         .task(id: category.id) { await reload() }
         .refreshable { await reload() }
+    }
+
+    private func thumbRatio(_ item: CatalogItem) -> CGFloat? {
+        guard let remote = item.remote, remote.width > 0, remote.height > 0 else { return nil }
+        return CGFloat(remote.width) / CGFloat(remote.height)
+    }
+
+    private func wallpaperButton(_ item: CatalogItem) -> some View {
+        Button { select(item) } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                CatalogThumb(item: item)
+                    .aspectRatio(thumbRatio(item), contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                Text(item.title).font(.subheadline).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain).disabled(importing || model.busy)
     }
 
     private func reload() async {
@@ -99,9 +118,4 @@ struct ServerWallpaperGalleryView: View {
         guard !importing, !model.busy else { return }
         importing = true
         Task {
-            defer { importing = false }
-            do { use(GalleryPick(data: try await CatalogLibrary.originalData(item), source: "catalog", assetID: item.id)) }
-            catch { problem = "无法导入壁纸，请重试。" }
-        }
-    }
-}
+            defer { im

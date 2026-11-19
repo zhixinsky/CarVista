@@ -22,7 +22,6 @@ struct ComposeWallpaperView: View {
     @State private var adjusting = false
     @State private var savingPhoto = false
     @State private var savedToPhotos = false
-    @State private var generatedAlert = false
     @State private var shareCollection: WallpaperCollection?
     @AppStorage("CarVistaSharedHistory") private var sharedHistory = ""
     @State private var cropOrientation = CropOrientationSession()
@@ -129,33 +128,17 @@ struct ComposeWallpaperView: View {
                                     .buttonStyle(.bordered).disabled(locked).accessibilityLabel("移除当前照片")
                                     .fixedSize(horizontal: true, vertical: false)
                             }
-                            GeometryReader { geo in
-                                let gap: CGFloat = 8
-                                let unit = (geo.size.width - gap) / 3
-                                HStack(spacing: gap) {
-                                    Button { generate() } label: {
-                                        Text("生成壁纸").lineLimit(1).minimumScaleFactor(0.7)
-                                            .frame(maxWidth: .infinity, minHeight: 44)
-                                            .background(Color.indigo, in: RoundedRectangle(cornerRadius: 12))
-                                            .foregroundStyle(.white)
-                                            .opacity(locked ? 0.5 : 1)
-                                    }.buttonStyle(.plain).disabled(locked)
-                                        .accessibilityIdentifier("wallpaper.generate")
-                                        .frame(width: unit)
-                                    Button { prepareCurrentWallpaper() } label: {
-                                        HStack(spacing: 6) {
-                                            Image(systemName: "car.side.fill")
-                                            Text("应用到 CarPlay").lineLimit(1).minimumScaleFactor(0.7)
-                                        }
-                                        .frame(maxWidth: .infinity, minHeight: 44)
-                                        .background(CanvasTheme.accent, in: RoundedRectangle(cornerRadius: 12))
-                                        .foregroundStyle(.white)
-                                        .opacity(locked ? 0.5 : 1)
-                                    }.buttonStyle(.plain).disabled(locked)
-                                        .frame(width: unit * 2)
+                            Button { prepareCurrentWallpaper() } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "car.side.fill")
+                                    Text("应用到 CarPlay").lineLimit(1).minimumScaleFactor(0.7)
                                 }
-                                .font(.system(size: 17, weight: .semibold))
-                            }.frame(height: 44)
+                                .font(.system(size: 15, weight: .medium))
+                                .frame(maxWidth: .infinity, minHeight: 36)
+                                .background(CanvasTheme.accent, in: RoundedRectangle(cornerRadius: 10))
+                                .foregroundStyle(.white)
+                                .opacity(locked ? 0.5 : 1)
+                            }.buttonStyle(.plain).disabled(locked)
                         }
                         .font(.system(size: 13, weight: .medium))
                         .controlSize(.small)
@@ -249,12 +232,6 @@ struct ComposeWallpaperView: View {
             .onAppear { initialize() }
             .task { await loadShared() }
             .alert("已保存到相册", isPresented: $savedToPhotos) { Button("好", role: .cancel) {} }
-            .alert("壁纸文件已生成", isPresented: $generatedAlert) {
-                Button("查看历史记录") { showTool(.history) }
-                Button("知道了", role: .cancel) {}
-            } message: {
-                Text("你可以在「历史记录」中查看、分享或应用已生成的壁纸文件。")
-            }
             .task(id: galleryImport?.id) { await importGallerySelection() }
             .task(id: selection) { await importSelection() }
             .task(id: photo?.id) { await loadSourcePixels() }
@@ -488,15 +465,6 @@ struct ComposeWallpaperView: View {
             }.value
             try Task.checkCancellation(); preview = result; previewing = false
         } catch { if !Task.isCancelled { preview = nil; previewing = false; problem = "预览失败：\(error.localizedDescription)" } }
-    }
-    private func generate() {
-        problem = nil
-        let snapshot = photos
-        model.generatePhotos(snapshot, preset: .original, size: outputSize) { batches in
-            generated = Dictionary(uniqueKeysWithValues: zip(snapshot, batches).map { ($0.0.id, $0.1) })
-            if batches.isEmpty { problem = model.message }
-            else { generatedAlert = true }
-        }
     }
 }
 

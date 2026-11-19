@@ -68,7 +68,7 @@ struct StockWallpaperGalleryView: View {
                     Text(problem).foregroundStyle(.secondary)
                     Button("重试") { Task { await reload() } }.disabled(loading)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 155), spacing: 12)], spacing: 16) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())], spacing: 16) {
                     ForEach(images) { item in
                         Button { selection = item } label: {
                             VStack(alignment: .leading, spacing: 6) {
