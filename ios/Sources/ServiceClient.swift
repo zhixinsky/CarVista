@@ -126,6 +126,9 @@ actor ServiceClient {
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return false }
+            var sharedIDs = Set(UserDefaults.standard.string(forKey: "CarVistaSharedHistory")?.split(separator: "|").map(String.init) ?? [])
+            sharedIDs.insert(entry.id.uuidString)
+            UserDefaults.standard.set(sharedIDs.sorted().joined(separator: "|"), forKey: "CarVistaSharedHistory")
             return true
         } catch { return false }
     }

@@ -94,9 +94,11 @@ struct CanvasHomeView: View {
 }
 struct CanvasHistoryView: View {
     @EnvironmentObject var model: WorkshopModel
+    @AppStorage("CarVistaSharedHistory") private var sharedHistory = ""
     @State private var clear = false
     @State private var remove: WallpaperCollection?
     @State private var shareTarget: WallpaperCollection?
+    @State private var detailTarget: WallpaperCollection?
     @State private var shareText = ""
     @State private var sharingID: UUID?
     @State private var shareNotes: [UUID: String] = [:]
@@ -106,8 +108,9 @@ struct CanvasHistoryView: View {
                 ContentUnavailableView("还没有保存的壁纸", systemImage: "photo.stack", description: Text("到“壁纸”选择图片，保存后就会出现在这里。"))
             }
             ForEach(model.collections) { collection in
+                let shared = collection.entries.contains { sharedHistory.split(separator: "|").contains(Substring($0.id.uuidString)) }
                 ZStack(alignment: .trailing) {
-                    NavigationLink { WallpaperDetailView(collectionID: collection.id) } label: {
+                    Button { detailTarget = collection } label: {
                         HStack(spacing: 12) {
                             SavedThumbnail(entry: collection.first).frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 15))
                             VStack(alignment: .leading, spacing: 5) {
@@ -121,7 +124,8 @@ struct CanvasHistoryView: View {
                             Spacer(minLength: 76)
                         }.padding(.vertical, 5)
                     }
-                    Button(sharingID == collection.id ? "正在共享…" : "共享") {
+                    .buttonStyle(.plain)
+                    Button(sharingID == collection.id ? "正在共享…" : shared ? "已共享" : "共享") {
                         shareText = ""
                         shareTarget = collection
                     }
@@ -131,12 +135,21 @@ struct CanvasHistoryView: View {
                     .padding(.vertical, 6)
                     .background(CanvasTheme.accent.opacity(0.14), in: Capsule())
                     .foregroundStyle(CanvasTheme.accent)
-                    .disabled(model.busy || sharingID != nil)
-                    .accessibilityLabel("共享\(collection.title)")
+                    .disabled(model.busy || sharingID != nil || shared)
+                    .accessibilityLabel("\(shared ? "已共享" : "共享")\(collection.title)")
                 }
                 .swipeActions { Button("删除", role: .destructive) { remove = collection }.disabled(model.busy) }
             }
-        }.navigationTitle("历史记录").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
+        }
+            .navigationDestination(isPresented: Binding(
+                get: { detailTarget != nil },
+                set: { if !$0 { detailTarget = nil } }
+            )) {
+                if let collection = detailTarget {
+                    WallpaperDetailView(collectionID: collection.id)
+                }
+            }
+            .navigationTitle("历史记录").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .toolbar { Button("全部清空") { clear = true }.disabled(model.history.isEmpty || model.busy) }
             .confirmationDialog("清空所有本地壁纸记录？已应用的车机壁纸和恢复备份会保留。", isPresented: $clear, titleVisibility: .visible) {
                 Button("全部清空", role: .destructive) { model.deleteHistory(model.history) }
@@ -193,6 +206,7 @@ private struct SavedThumbnail: View {
 
 struct WallpaperDetailView: View {
     @EnvironmentObject var model: WorkshopModel
+    @AppStorage("CarVistaSharedHistory") private var sharedHistory = ""
     @Environment(\.dismiss) private var dismiss
     let collectionID: UUID
     @State private var applying = false
@@ -219,8 +233,9 @@ struct WallpaperDetailView: View {
                     }
                     Section {
                         Button { applying = true } label: { Label("应用到 CarPlay 壁纸", systemImage: "car.side.fill").font(.headline) }.disabled(model.busy)
-                        Button(sharing ? "正在共享…" : "共享到图库") { shareText = ""; shareDraft = true }
-                            .disabled(model.busy || sharing)
+                        let shared = collection.entries.contains { sharedHistory.split(separator: "|").contains(Substring($0.id.uuidString)) }
+                        Button(sharing ? "正在共享…" : shared ? "已共享" : "共享到图库") { shareText = ""; shareDraft = true }
+                            .disabled(model.busy || sharing || shared)
                         if let shareNote { Text(shareNote).font(.footnote).foregroundStyle(.secondary) }
                         ShareLink(items: collection.entries.map(\.bitmap)) { Label("分享 CPBitmap 文件", systemImage: "square.and.arrow.up") }
                         if let dashboard = collection.entries.first(where: { $0.mode == "车机" }) {

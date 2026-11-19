@@ -69,7 +69,7 @@ struct ComposeWallpaperView: View {
                 VStack(spacing: 14) {
                     Group {
                         if let preview { Image(uiImage: preview).resizable().scaledToFit() }
-                        else if photos.isEmpty { Label("选择一张壁纸", systemImage: "photo.on.rectangle.angled").font(.headline).padding(.vertical, 12) }
+                        else if photos.isEmpty { Label("选择一张壁纸", systemImage: "photo.on.rectangle.angled").font(.headline).padding(.vertical, 36) }
                         else { ProgressView("正在生成预览…").frame(height: 160) }
                     }.frame(maxWidth: .infinity).clipShape(RoundedRectangle(cornerRadius: 18))
                         .overlay(alignment: .topTrailing) { if previewing && preview != nil { ProgressView().padding(12).background(.regularMaterial, in: Capsule()) } }

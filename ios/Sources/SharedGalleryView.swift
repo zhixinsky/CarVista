@@ -48,10 +48,9 @@ struct ShareItem: Decodable {
 
 struct SharedWallpaperGalleryView: View {
     @EnvironmentObject private var model: WorkshopModel
+    let use: (GalleryPick) -> Void
     @State private var items: [SharedWallpaper] = []
     @State private var note = ""
-    @State private var applying = false
-    @State private var entries: [SavedWallpaper] = []
     @State private var busyID: String?
 
     var body: some View {
@@ -62,15 +61,20 @@ struct SharedWallpaperGalleryView: View {
                 }
                 ForEach(items) { item in
                     VStack(alignment: .leading, spacing: 8) {
-                        Button { apply(item) } label: {
-                            AsyncImage(url: item.previewURL) { image in
-                                image.resizable().scaledToFit()
-                            } placeholder: {
-                                Color(uiColor: .tertiarySystemFill)
+                        Button { select(item) } label: {
+                            AsyncImage(url: item.previewURL) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image.resizable().scaledToFit()
+                                case .failure:
+                                    Label("预览加载失败", systemImage: "photo")
+                                        .frame(maxWidth: .infinity, minHeight: 92)
+                                default:
+                                    ProgressView()
+                                        .frame(maxWidth: .infinity, minHeight: 92)
+                                }
                             }
                             .frame(maxWidth: .infinity)
-                            .frame(height: 92)
-                            .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         }.buttonStyle(.plain).disabled(busyID != nil || model.busy)
                         HStack {
@@ -85,7 +89,7 @@ struct SharedWallpaperGalleryView: View {
                             Button { like(item) } label: {
                                 Label("\(item.likes)", systemImage: item.liked ? "heart.fill" : "heart")
                             }.buttonStyle(.bordered).disabled(busyID != nil)
-                            Button(busyID == item.id ? "正在准备…" : "应用") { apply(item) }
+                            Button(busyID == item.id ? "正在导入…" : "选择") { select(item) }
                                 .buttonStyle(.borderedProminent)
                                 .disabled(busyID != nil || model.busy)
                         }
@@ -95,9 +99,6 @@ struct SharedWallpaperGalleryView: View {
         }
         .task { await reload() }
         .refreshable { await reload() }
-        .sheet(isPresented: $applying) {
-            NavigationStack { ApplyWallpaperView(entries: entries) }
-        }
     }
 
     private func reload() async {
@@ -111,7 +112,7 @@ struct SharedWallpaperGalleryView: View {
             return
         }
         items = remote
-        note = remote.isEmpty ? "还没有人共享壁纸。" : "按点赞数排列，点图片可直接应用到 CarPlay。"
+        note = remote.isEmpty ? "还没有人共享壁纸。" : "按点赞数排列，点图片可选为当前壁纸。"
     }
 
     private func like(_ item: SharedWallpaper) {
@@ -126,7 +127,7 @@ struct SharedWallpaperGalleryView: View {
         }
     }
 
-    private func apply(_ item: SharedWallpaper) {
+    private func select(_ item: SharedWallpaper) {
         guard busyID == nil, !model.busy else { return }
         busyID = item.id
         Task {
@@ -137,13 +138,7 @@ struct SharedWallpaperGalleryView: View {
                     note = "无法下载这张壁纸。"
                     return
                 }
-                let ready = await model.prepareOriginal(data, source: "share", assetID: item.id)
-                guard !ready.isEmpty else {
-                    note = model.message
-                    return
-                }
-                entries = ready
-                applying = true
+                use(GalleryPick(data: data, source: "share", assetID: item.id))
             } catch {
                 note = "无法下载这张壁纸。"
             }

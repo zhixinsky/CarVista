@@ -96,7 +96,7 @@ struct WallpaperGalleryView: View {
                     .accessibilityHidden(source != .buick)
             }
             if openedShare || source == .share {
-                SharedWallpaperGalleryView()
+                SharedWallpaperGalleryView(use: use)
                     .opacity(source == .share ? 1 : 0)
                     .allowsHitTesting(source == .share)
                     .accessibilityHidden(source != .share)
