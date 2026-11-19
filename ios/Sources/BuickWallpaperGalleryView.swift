@@ -2,23 +2,10 @@
 import SwiftUI
 
 struct BuickWallpaperGalleryView: View {
-    private struct Wallpaper: Identifiable {
-        let id: Int
-        var name: String { "别克壁纸 \(id)" }
-        private var stem: String { String(format: "%02d", id) }
-        var originalURL: URL? { resource(stem, withExtension: "jpeg") }
-        var thumbnail: UIImage? {
-            resource("\(stem)-preview", withExtension: "jpg").flatMap { UIImage(contentsOfFile: $0.path) }
-        }
-
-        private func resource(_ name: String, withExtension ext: String) -> URL? {
-            Bundle.main.url(forResource: name, withExtension: ext, subdirectory: "BuiltinWallpapers/BuickGallery")
-        }
-    }
-
     @EnvironmentObject private var model: WorkshopModel
-    let use: (Data) -> Void
-    @State private var selection: Wallpaper?
+    let use: (GalleryPick) -> Void
+    @StateObject private var catalog = CatalogStore(collection: .buick)
+    @State private var selection: CatalogItem?
     @State private var loading = false
     @State private var error: String?
 
@@ -28,22 +15,27 @@ struct BuickWallpaperGalleryView: View {
                 Label("别克大联屏用户请自行裁剪尺寸", systemImage: "crop")
                     .font(.subheadline).foregroundStyle(.secondary)
                 LazyVStack(alignment: .leading, spacing: 16) {
-                    ForEach((1...16).map { Wallpaper(id: $0) }) { wallpaper in
+                    ForEach(catalog.items) { wallpaper in
                         Button { error = nil; selection = wallpaper } label: {
                             VStack(alignment: .leading, spacing: 6) {
-                                thumbnail(wallpaper)
-                                Text(wallpaper.name).font(.subheadline)
+                                CatalogThumb(item: wallpaper)
+                                    .frame(maxWidth: .infinity)
+                                    .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    .accessibilityHidden(true)
+                                Text(wallpaper.title).font(.subheadline)
                             }.frame(maxWidth: .infinity, alignment: .leading)
                         }.buttonStyle(.plain)
                     }
                 }
             }.frame(maxWidth: 720).padding(16).frame(maxWidth: .infinity)
         }
+        .task { await catalog.refresh() }
         .sheet(item: $selection) { wallpaper in
             NavigationStack {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        thumbnail(wallpaper)
+                        CatalogThumb(item: wallpaper).frame(maxWidth: .infinity)
                         Text("别克大联屏用户请自行裁剪尺寸").font(.subheadline)
                         Text("导入整张原图后，回到壁纸页点「裁剪」。")
                             .font(.footnote).foregroundStyle(.secondary)
@@ -52,7 +44,7 @@ struct BuickWallpaperGalleryView: View {
                         if let error { Text(error).font(.footnote).foregroundStyle(.red) }
                     }.padding(16)
                 }
-                .navigationTitle(wallpaper.name)
+                .navigationTitle(wallpaper.title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("关闭") { selection = nil }.disabled(loading) }
                 .interactiveDismissDisabled(loading)
@@ -60,27 +52,19 @@ struct BuickWallpaperGalleryView: View {
         }
     }
 
-    private func thumbnail(_ wallpaper: Wallpaper) -> some View {
-        Group {
-            if let image = wallpaper.thumbnail { Image(uiImage: image).resizable().scaledToFit() }
-            else { Label("预览不可用", systemImage: "photo").font(.caption) }
-        }.frame(maxWidth: .infinity)
-            .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .accessibilityHidden(true)
-    }
-
-    private func importOriginal(_ wallpaper: Wallpaper) {
+    private func importOriginal(_ wallpaper: CatalogItem) {
         guard !loading, !model.busy else { return }
-        guard let url = wallpaper.originalURL else { error = "无法找到原图。"; return }
         loading = true
         error = nil
         Task {
             defer { loading = false }
             do {
-                let data = try await Task.detached { try Data(contentsOf: url) }.value
+                let data = try await CatalogLibrary.originalData(wallpaper)
                 selection = nil
-                use(data)
+                use(GalleryPick(data: data, source: "buick", assetID: wallpaper.remote?.id))
+                await ServiceClient.shared.record(type: "pick_catalog", ok: true, payload: [
+                    "collection": "buick", "title": wallpaper.title, "asset_id": wallpaper.remote?.id ?? ""
+                ])
             } catch {
                 self.error = "无法读取原图，请重试。"
             }

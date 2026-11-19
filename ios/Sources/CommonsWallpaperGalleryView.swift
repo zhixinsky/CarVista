@@ -108,7 +108,7 @@ struct CommonsWallpaperGalleryView: View {
         ("全景", "landscape panorama")
     ]
 
-    let use: (Data) -> Void
+    let use: (GalleryPick) -> Void
     @State private var searchText = ""
     @State private var query = CommonsWallpaperGalleryView.themes[0].1
     @State private var ultrawide = false
@@ -179,9 +179,9 @@ struct CommonsWallpaperGalleryView: View {
         .onAppear { if initialRequest { load(reset: true) } }
         .onDisappear { task?.cancel(); loading = false }
         .sheet(item: $selection) { item in
-            CommonsPhotoDetail(photo: item) { data in
+            CommonsPhotoDetail(photo: item) { pick in
                 selection = nil
-                use(data)
+                use(pick)
             }
         }
     }
@@ -234,7 +234,7 @@ private struct CommonsPhotoDetail: View {
     @EnvironmentObject private var model: WorkshopModel
     @Environment(\.dismiss) private var dismiss
     let photo: CommonsPhoto
-    let use: (Data) -> Void
+    let use: (GalleryPick) -> Void
     @State private var loading = false
     @State private var failed = false
 
@@ -258,7 +258,7 @@ private struct CommonsPhotoDetail: View {
                         failed = false
                         Task {
                             defer { loading = false }
-                            do { use(try await CommonsPhotoAPI.fetch(photo.original, image: true)) }
+                            do { use(GalleryPick(data: try await CommonsPhotoAPI.fetch(photo.original, image: true), source: "commons")) }
                             catch { failed = true }
                         }
                     }.buttonStyle(.borderedProminent).disabled(loading || model.busy)

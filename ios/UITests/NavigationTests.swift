@@ -4,7 +4,7 @@ final class NavigationTests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
     func testBuiltinSelectionUsesOriginalSize() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-CCGuideSeen", "YES"]
+        app.launchArguments = ["-CCGuideSeen", "YES", "-CarVistaOfflineCatalog"]
         app.launch()
         let wallpaper = app.buttons["壁纸 1"]
         for _ in 0..<3 { if wallpaper.isHittable { break }; app.swipeUp() }
@@ -24,7 +24,7 @@ final class NavigationTests: XCTestCase {
     }
     func testHomeAndOfflineWorkflow() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-CCGuideSeen", "YES"]
+        app.launchArguments = ["-CCGuideSeen", "YES", "-CarVistaOfflineCatalog"]
         app.launch()
         XCTAssertTrue(app.navigationBars["壁纸"].waitForExistence(timeout: 15))
         capture(app, "01-Home")
@@ -48,7 +48,7 @@ final class NavigationTests: XCTestCase {
     }
     func testFirstLaunchGuide() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-CCGuideSeen", "NO"]
+        app.launchArguments = ["-CCGuideSeen", "NO", "-CarVistaOfflineCatalog"]
         app.launch()
         XCTAssertTrue(app.buttons["guide.done"].waitForExistence(timeout: 15))
         capture(app, "06-FirstLaunchGuide")
@@ -57,7 +57,7 @@ final class NavigationTests: XCTestCase {
     }
     func testMakerPresetsAndAdjustment() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-CCGuideSeen", "YES", "-MakerUITestFixture"]
+        app.launchArguments = ["-CCGuideSeen", "YES", "-MakerUITestFixture", "-CarVistaOfflineCatalog"]
         app.launch()
         XCTAssertTrue(app.buttons["maker.adjust"].waitForExistence(timeout: 15))
         capture(app, "07-Maker-Photo")

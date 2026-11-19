@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ device.internal_name }} · CarVista{% endblock %}
+{% block body %}
+<h1>{{ device.internal_name }}</h1>
+<p class="muted">{{ device.device_machine }} · iOS {{ device.ios_version }} · {{ device.app_version }} · 首次 {{ device.first_seen }}</p>
+<h1>作品</h1>
+<div class="grid">
+  {% for work in works %}
+  <a class="block card" href="/admin/works/{{ work.id }}/file">
+    <img class="work" src="/admin/works/{{ work.id }}/file" alt="">
+    <div>{{ work.width }} × {{ work.height }} {{ work.mode }}</div>
+    <div class="muted">{{ work.source }} · {{ work.created_at }}</div>
+  </a>
+  {% else %}
+  <span class="muted">没有作品。</span>
+  {% endfor %}
+</div>
+<h1>动作</h1>
+<table>
+  <thead><tr><th>时间</th><th>类型</th><th>结果</th><th>内容</th></tr></thead>
+  <tbody>
+    {% for event in events %}
+    <tr>
+      <td class="muted">{{ event.at }}</td>
+      <td>{{ event.type }}</td>
+      <td>{{ "成功" if event.ok == 1 else ("失败" if event.ok == 0 else "") }}</td>
+      <td>{{ event.payload }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

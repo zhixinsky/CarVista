@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}概览 · CarVista{% endblock %}
+{% block body %}
+<h1>概览</h1>
+<div class="cards">
+  <div class="card"><span class="muted">今日新设备</span><b>{{ stats.devices }}</b></div>
+  <div class="card"><span class="muted">今日作品</span><b>{{ stats.works }}</b></div>
+  <div class="card"><span class="muted">今日失败</span><b>{{ stats.failures }}</b></div>
+</div>
+<h1 style="margin-top: 24px">最近失败文案</h1>
+<div class="panel">
+  {% if ranked %}
+    {% for message, count in ranked %}
+      <div>{{ message }} <span class="muted">{{ count }}</span></div>
+    {% endfor %}
+  {% else %}
+    <span class="muted">还没有失败记录。</span>
+  {% endif %}
+</div>
+{% endblock %}

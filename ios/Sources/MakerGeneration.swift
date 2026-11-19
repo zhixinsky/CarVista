@@ -65,10 +65,14 @@ extension WorkshopModel {
             if let batches = result["batches"] as? [[SavedWallpaper]], result["ok"] as? Bool == true {
                 self.history.insert(contentsOf: batches.flatMap { $0 }, at: 0)
                 self.message = "已生成 \(batches.count * 2) 个文件，深色与浅色均已保存。"
+                for (photo, batch) in zip(photos, batches) {
+                    self.reportSaved(batch, source: photo.remoteSource ?? "photo", assetID: photo.remoteAssetID)
+                }
                 completion(batches)
             } else {
                 self.generationProgress = 0
                 self.message = result["message"] as? String ?? "生成失败"
+                self.report("save_wallpaper", ok: false, ["message": self.message, "stage": "encode"])
                 completion([])
             }
         }

@@ -25,6 +25,7 @@ struct ComposeWallpaperView: View {
     @State private var previewing = false
     @State private var initialized = false
     @State private var sourcePixels: CGSize?
+    @StateObject private var builtinCatalog = CatalogStore(collection: .builtin)
     private var photo: MakerPhoto? { photos.indices.contains(current) ? photos[current] : nil }
     private var outputSize: CGSize {
         if let crop = photo?.adjustment.pixelCrop { return crop.rect.size }
@@ -100,18 +101,21 @@ struct ComposeWallpaperView: View {
                             Button("裁剪调色") { adjusting = true }.buttonStyle(.bordered).disabled(locked)
                                 .accessibilityIdentifier("maker.adjust")
                                 .fixedSize(horizontal: true, vertical: false)
-                            Button { downloadPhoto() } label: {
-                                if savingPhoto {
-                                    ProgressView().accessibilityLabel("正在保存到相册")
-                                } else {
-                                    ViewThatFits(in: .horizontal) {
-                                        Text("下载").fixedSize()
-                                        Image(systemName: "arrow.down.to.line")
+                            if model.photoDownloadUnlocked {
+                                Button { downloadPhoto() } label: {
+                                    if savingPhoto {
+                                        ProgressView().accessibilityLabel("正在保存到相册")
+                                    } else {
+                                        ViewThatFits(in: .horizontal) {
+                                            Text("下载").fixedSize()
+                                            Image(systemName: "arrow.down.to.line")
+                                        }
                                     }
-                                }
-                            }.buttonStyle(.bordered).disabled(locked)
-                                .accessibilityLabel(savingPhoto ? "正在保存到相册" : "下载")
-                                .accessibilityHint("保存调整后的照片到相册")
+                                }.buttonStyle(.bordered).disabled(locked)
+                                    .accessibilityIdentifier("maker.download")
+                                    .accessibilityLabel(savingPhoto ? "正在保存到相册" : "下载")
+                                    .accessibilityHint("保存调整后的照片到相册")
+                            }
                             Spacer(minLength: 0)
                             Button(role: .destructive) { removeCurrent() } label: { Image(systemName: "trash") }
                                 .buttonStyle(.bordered).disabled(locked).accessibilityLabel("移除当前照片")
@@ -141,10 +145,10 @@ struct ComposeWallpaperView: View {
                     Text("点选后可直接应用到 CarPlay。").font(.caption).foregroundStyle(.secondary)
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack {
-                            ForEach(BuiltinWallpaper.all) { item in
-                                Button { selectBuiltin(item) } label: {
+                            ForEach(builtinCatalog.items) { item in
+                                Button { selectCatalog(item) } label: {
                                     VStack {
-                                        BuiltinWallpaperPreview(wallpaper: item)
+                                        CatalogThumb(item: item)
                                             .frame(width: 160, height: 44)
                                             .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
                                             .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -195,6 +199,7 @@ struct ComposeWallpaperView: View {
                 }
             }
             .onAppear { initialize() }
+            .task { await builtinCatalog.refresh() }
             .alert("已保存到相册", isPresented: $savedToPhotos) { Button("好", role: .cancel) {} }
             .alert("壁纸文件已生成", isPresented: $generatedAlert) {
                 Button("查看历史记录") { showTool(.history) }
@@ -264,28 +269,37 @@ struct ComposeWallpaperView: View {
         }
         do {
             var incoming = try await Task.detached { try MakerDraft.importPhoto(data: request.data) }.value
-            incoming.sourceName = "在线图库"
+            incoming.sourceName = request.source == "buick" ? "别克大联屏" : "在线图库"
+            incoming.remoteSource = request.source
+            incoming.remoteAssetID = request.assetID
             guard !Task.isCancelled else {
                 try? FileManager.default.removeItem(at: incoming.url)
                 return
             }
             try replaceCurrent(with: incoming)
+            await ServiceClient.shared.record(type: "import_source", ok: true, payload: [
+                "source": request.source, "asset_id": request.assetID ?? ""
+            ])
         } catch {
             problem = "导入图库照片失败：\(error.localizedDescription)"
         }
     }
-    private func selectBuiltin(_ wallpaper: BuiltinWallpaper) {
+    private func selectCatalog(_ item: CatalogItem) {
         guard !locked else { return }
         loading = true
         problem = nil
         Task {
             defer { loading = false }
             do {
-                var incoming = try await Task.detached {
-                    try MakerDraft.importPhoto(data: Data(contentsOf: wallpaper.originalURL()))
-                }.value
-                incoming.sourceName = "内置\(wallpaper.title)"
+                let data = try await CatalogLibrary.originalData(item)
+                var incoming = try await Task.detached { try MakerDraft.importPhoto(data: data) }.value
+                incoming.sourceName = "内置\(item.title)"
+                incoming.remoteSource = "builtin"
+                incoming.remoteAssetID = item.remote?.id
                 try replaceCurrent(with: incoming)
+                await ServiceClient.shared.record(type: "pick_catalog", ok: true, payload: [
+                    "collection": "builtin", "title": item.title, "asset_id": item.remote?.id ?? ""
+                ])
             } catch {
                 problem = "导入内置壁纸失败：\(error.localizedDescription)"
             }
@@ -354,6 +368,7 @@ struct ComposeWallpaperView: View {
             try Task.checkCancellation()
             var incoming = try await Task.detached(priority: .userInitiated) { try MakerDraft.importPhoto(data: data) }.value
             incoming.sourceName = "相册照片"
+            incoming.remoteSource = "photo"
             if Task.isCancelled {
                 try? FileManager.default.removeItem(at: incoming.url)
                 return

@@ -71,7 +71,7 @@ struct WallpaperGalleryView: View {
     private enum Source: String, CaseIterable {
         case bing = "Bing 每日精选", commons = "Commons 主题找图", buick = "别克大联屏"
     }
-    let use: (Data) -> Void
+    let use: (GalleryPick) -> Void
     @State private var source: Source = .bing
     @State private var openedCommons = false
     @State private var openedBuick = false
@@ -115,7 +115,7 @@ struct WallpaperGalleryView: View {
 
 private struct BingWallpaperGalleryView: View {
     @EnvironmentObject private var model: WorkshopModel
-    let use: (Data) -> Void
+    let use: (GalleryPick) -> Void
     @State private var images: [BingWallpaper] = []
     @State private var selection: BingWallpaper?
     @State private var loading = false
@@ -161,9 +161,9 @@ private struct BingWallpaperGalleryView: View {
         .refreshable { await reload() }
         .task { if images.isEmpty { await reload() } }
         .sheet(item: $selection) { item in
-            BingWallpaperDetail(item: item, busy: model.busy) { data in
+            BingWallpaperDetail(item: item, busy: model.busy) { pick in
                 selection = nil
-                use(data)
+                use(pick)
             }
         }
     }
@@ -213,7 +213,7 @@ private struct BingWallpaperDetail: View {
     @Environment(\.dismiss) private var dismiss
     let item: BingWallpaper
     let busy: Bool
-    let use: (Data) -> Void
+    let use: (GalleryPick) -> Void
     @State private var downloading = false
     @State private var failed = false
 
@@ -241,7 +241,7 @@ private struct BingWallpaperDetail: View {
         failed = false
         Task {
             defer { downloading = false }
-            do { use(try await BingGallery.download(item)) }
+            do { use(GalleryPick(data: try await BingGallery.download(item), source: "bing")) }
             catch { failed = true }
         }
     }

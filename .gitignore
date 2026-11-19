@@ -25,4 +25,12 @@ ios/*.xcodeproj/
 !.github/
 !.github/workflows/
 !.github/workflows/*.yml
-ios/output/
+!ios/output/
+
+# Admin service
+!server/
+!server/**
+server/.env
+server/data/
+server/**/__pycache__/
+server/.pytest_cache/

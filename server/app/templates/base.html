@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{% block title %}CarVista 后台{% endblock %}</title>
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; font: 15px/1.5 "Segoe UI", sans-serif; color: #1c2430; background: #f4f6f8; }
+    header { display: flex; gap: 20px; align-items: center; padding: 14px 24px; background: #fff; border-bottom: 1px solid #dde3ea; }
+    header strong { font-size: 16px; }
+    nav { display: flex; gap: 14px; flex-wrap: wrap; }
+    nav a { color: #1c2430; text-decoration: none; }
+    nav a:hover { text-decoration: underline; }
+    header form { margin-left: auto; }
+    main { max-width: 1080px; margin: 0 auto; padding: 24px; }
+    h1 { font-size: 22px; margin: 0 0 16px; }
+    .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .card, .panel { background: #fff; border: 1px solid #dde3ea; border-radius: 12px; padding: 16px; }
+    .card b { display: block; font-size: 28px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e6ebf0; vertical-align: top; }
+    img.thumb { width: 160px; height: 48px; object-fit: cover; background: #eef2f5; border-radius: 6px; }
+    img.work { width: 180px; height: 100px; object-fit: cover; background: #eef2f5; border-radius: 8px; }
+    form.inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    input[type="text"], input[type="password"] { padding: 6px 8px; border: 1px solid #c5ced8; border-radius: 8px; }
+    button { padding: 6px 10px; border-radius: 8px; border: 1px solid #c5ced8; background: #fff; cursor: pointer; }
+    button.primary { background: #0b7a86; color: #fff; border-color: #0b7a86; }
+    .msg { margin: 0 0 12px; color: #0b7a86; }
+    .muted { color: #667387; font-size: 13px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+    a.block { color: inherit; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>CarVista</strong>
+    <nav>
+      <a href="/admin">概览</a>
+      <a href="/admin/assets?collection=builtin">内置壁纸</a>
+      <a href="/admin/assets?collection=buick_gallery">别克大联屏</a>
+      <a href="/admin/users">用户</a>
+      <a href="/admin/works">作品</a>
+      <a href="/admin/failures">故障</a>
+    </nav>
+    <form method="post" action="/admin/logout">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button>退出</button>
+    </form>
+  </header>
+  <main>
+    {% if msg %}<p class="msg">{{ msg }}</p>{% endif %}
+    {% block body %}{% endblock %}
+  </main>
+</body>
+</html>

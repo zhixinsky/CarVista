@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}作品 · CarVista{% endblock %}
+{% block body %}
+<h1>作品</h1>
+<div class="grid">
+  {% for work in works %}
+  <div class="card">
+    <img class="work" src="/admin/works/{{ work.id }}/file" alt="">
+    <div><a href="/admin/users/{{ work.device_id }}">{{ work.internal_name }}</a></div>
+    <div class="muted">{{ work.source }} · {{ work.width }} × {{ work.height }} {{ work.mode }}</div>
+    <div class="muted">{{ work.created_at }}</div>
+  </div>
+  {% else %}
+  <span class="muted">还没有作品。</span>
+  {% endfor %}
+</div>
+{% endblock %}

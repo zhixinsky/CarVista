@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}故障 · CarVista{% endblock %}
+{% block body %}
+<h1>故障</h1>
+<table>
+  <thead><tr><th>文案</th><th>次数</th><th>设备数</th><th>最近</th></tr></thead>
+  <tbody>
+    {% for group in groups %}
+    <tr>
+      <td>{{ group.message }}</td>
+      <td>{{ group.count }}</td>
+      <td>{{ group.devices }}</td>
+      <td class="muted">{{ group.last }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="muted">还没有失败记录。</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<h1>最近失败</h1>
+<table>
+  <thead><tr><th>时间</th><th>用户</th><th>阶段</th><th>文案</th><th>目标</th><th>机型</th></tr></thead>
+  <tbody>
+    {% for item in failures %}
+    <tr>
+      <td class="muted">{{ item.at }}</td>
+      <td><a href="/admin/users/{{ item.device_id }}">{{ item.internal_name }}</a></td>
+      <td>{{ item.type }}</td>
+      <td>{{ item.message }}</td>
+      <td>{{ item.target }}</td>
+      <td>{{ item.device_machine }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

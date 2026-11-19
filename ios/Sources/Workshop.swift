@@ -6,7 +6,12 @@ import ImageIO
 @main
 struct CarVistaApp: App {
     @StateObject private var model = WorkshopModel()
-    var body: some Scene { WindowGroup { CanvasHomeView().environmentObject(model) } }
+    var body: some Scene {
+        WindowGroup {
+            CanvasHomeView().environmentObject(model)
+                .task { await ServiceClient.shared.startup() }
+        }
+    }
 }
 
 struct WallpaperTarget: Identifiable {
@@ -30,6 +35,7 @@ final class WorkshopModel: ObservableObject {
     @Published var root = ""
     @Published var reportURL: URL?
     @Published var generationProgress = 0.0
+    @Published var photoDownloadUnlocked = false
     @Published var lastDetectedWallpaperSize: CGSize?
     @Published private(set) var lastScanSummary: String?
     @Published private(set) var lastApplySummary: String?
@@ -68,6 +74,18 @@ final class WorkshopModel: ObservableObject {
         backups = CCEngine.backups() as? [[String: Any]] ?? []
     }
 
+    func report(_ type: String, ok: Bool, _ payload: [String: Any]) {
+        Task { await ServiceClient.shared.record(type: type, ok: ok, payload: payload) }
+    }
+
+    func reportSaved(_ entries: [SavedWallpaper], source: String, assetID: String?) {
+        let groups = Dictionary(grouping: entries) { $0.batchID ?? $0.id }
+        for group in groups.values {
+            guard let entry = group.first else { continue }
+            Task { await ServiceClient.shared.submitSaved(entry, source: source, assetID: assetID) }
+        }
+    }
+
     func work(_ task: @escaping () -> [String: Any], finish: @escaping ([String: Any]) -> Void) {
         guard !busy else { return }
         busy = true
@@ -98,6 +116,12 @@ final class WorkshopModel: ObservableObject {
             self.lastScanSummary = self.targets.isEmpty
                 ? self.message : "找到 \(self.targets.count) 个，格式与尺寸符合要求 \(editable) 个"
             self.makeReport()
+            let ok = result["ok"] as? Bool == true
+            self.report("scan_result", ok: ok, [
+                "message": self.message, "stage": "scan",
+                "target_count": self.targets.count, "editable_count": editable,
+                "app_group": !self.group.isEmpty
+            ])
         }
     }
 
@@ -117,6 +141,7 @@ final class WorkshopModel: ObservableObject {
                 self.history.insert(entry, at: 0)
                 self.message = "壁纸已生成并保存。确认后可替换目标缓存。"
                 completion(entry)
+                self.reportSaved([entry], source: "photo", assetID: nil)
             } else { self.message = result["message"] as? String ?? "生成失败"; completion(nil) }
         }
     }
@@ -129,6 +154,13 @@ final class WorkshopModel: ObservableObject {
             // Snapshots are invalid after a mutation attempt; require a rescan.
             self.targets = []
             self.makeReport()
+            let ok = result["ok"] as? Bool == true
+            self.report("apply_result", ok: ok, [
+                "message": self.message, "stage": "apply", "completed": ok ? 1 : 0, "total": 1,
+                "target_width": target.width, "target_height": target.height, "mode": target.mode,
+                "output_width": entry.width, "output_height": entry.height,
+                "app_group": !self.group.isEmpty
+            ])
         }
     }
 
@@ -139,6 +171,9 @@ final class WorkshopModel: ObservableObject {
             self.message = result["message"] as? String ?? "恢复失败"
             self.targets = []
             self.makeReport()
+            self.report("restore_result", ok: result["ok"] as? Bool == true, [
+                "message": self.message, "stage": "restore", "app_group": !self.group.isEmpty
+            ])
         }
     }
 
@@ -204,6 +239,7 @@ final class WorkshopModel: ObservableObject {
                 self.history.insert(contentsOf: entries, at: 0)
                 self.message = "已保存到历史记录，可随时应用或分享。"
                 completion(entries)
+                self.reportSaved(entries, source: "photo", assetID: nil)
             } else {
                 self.message = result["message"] as? String ?? "保存失败"
                 completion([])
@@ -243,7 +279,15 @@ final class WorkshopModel: ObservableObject {
             self.lastApplySummary = self.message
             self.targets = []
             self.makeReport()
-            completion(result["completed"] as? Int ?? 0)
+            let completed = result["completed"] as? Int ?? 0
+            self.report("apply_result", ok: completed == targets.count && !targets.isEmpty, [
+                "message": self.message, "stage": "apply", "completed": completed, "total": targets.count,
+                "target_width": targets.first?.width ?? 0, "target_height": targets.first?.height ?? 0,
+                "mode": targets.first?.mode ?? "",
+                "output_width": entries.first?.width ?? 0, "output_height": entries.first?.height ?? 0,
+                "app_group": !self.group.isEmpty
+            ])
+            completion(completed)
         }
     }
 

@@ -34,9 +34,17 @@ enum WallpaperRoute: Hashable {
     case history, cache
 }
 
+struct GalleryPick {
+    var data: Data
+    var source: String
+    var assetID: String? = nil
+}
+
 struct GalleryImport: Identifiable {
     let id = UUID()
     let data: Data
+    var source: String = "gallery"
+    var assetID: String? = nil
 }
 
 struct CanvasHomeView: View {
@@ -61,8 +69,8 @@ struct CanvasHomeView: View {
             .tabItem { Label("壁纸", systemImage: "photo.on.rectangle") }.tag(Tab.wallpaper)
 
             NavigationStack {
-                WallpaperGalleryView { data in
-                    galleryImport = GalleryImport(data: data)
+                WallpaperGalleryView { pick in
+                    galleryImport = GalleryImport(data: pick.data, source: pick.source, assetID: pick.assetID)
                     wallpaperPath.removeAll()
                     tab = .wallpaper
                 }
@@ -375,11 +383,17 @@ struct CanvasGuideView: View {
 struct CanvasSettingsView: View {
     @EnvironmentObject var model: WorkshopModel
     @State private var guide = false
+    @State private var logoTaps = 0
+    @State private var lastLogoTap = Date.distantPast
     var body: some View {
         List {
             Section {
                 HStack(spacing: 16) {
-                    Image("BrandMark").resizable().frame(width: 60, height: 60).clipShape(RoundedRectangle(cornerRadius: 15))
+                    Button(action: registerLogoTap) {
+                        Image("BrandMark").resizable().frame(width: 60, height: 60).clipShape(RoundedRectangle(cornerRadius: 15))
+                    }.buttonStyle(.plain)
+                        .accessibilityIdentifier("settings.logo")
+                        .accessibilityLabel("CarVista")
                     VStack(alignment: .leading, spacing: 5) { Text("CarVista").font(.headline); Text("v\(CanvasTheme.version)").font(.subheadline).foregroundStyle(.secondary) }
                 }.padding(.vertical, 6)
             }
@@ -395,10 +409,22 @@ struct CanvasSettingsView: View {
                 Link("项目源码", destination: URL(string: "https://github.com/zhixinsky/CarVista")!)
                 Text("基于公开研究实现。感谢 WQFiles 与 worse_query 作者。GPL-3.0-or-later。")
                     .font(.footnote).foregroundStyle(.secondary)
+                Text("制作记录和 CarPlay 失败信息会发送到服务端，用于改进兼容性。App 内不显示账号。")
+                    .font(.footnote).foregroundStyle(.secondary)
                 Text("iOS 27.2 与实际车机效果仍需设备验证。").font(.footnote).foregroundStyle(.secondary)
             }
         }.navigationTitle("设置").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .sheet(isPresented: $guide) { CanvasGuideView() }
+    }
+
+    private func registerLogoTap() {
+        let now = Date()
+        if now.timeIntervalSince(lastLogoTap) > 1.5 { logoTaps = 0 }
+        lastLogoTap = now
+        logoTaps += 1
+        guard logoTaps >= 5 else { return }
+        logoTaps = 0
+        model.photoDownloadUnlocked = true
     }
 }
 
