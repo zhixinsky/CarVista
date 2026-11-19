@@ -48,17 +48,21 @@ struct GalleryImport: Identifiable {
 }
 
 struct CanvasHomeView: View {
-    private enum Tab: Hashable { case wallpaper, gallery, settings }
+    private enum Tab: Hashable { case wallpaper, gallery, history, settings }
     @AppStorage("CCGuideSeen") private var guideSeen = false
     @State private var guide = false
     @State private var tab = Tab.wallpaper
+    @State private var gallerySource = WallpaperGalleryView.Source.bing
     @State private var wallpaperPath: [WallpaperRoute] = []
     @State private var galleryImport: GalleryImport?
 
     var body: some View {
         TabView(selection: $tab) {
             NavigationStack(path: $wallpaperPath) {
-                ComposeWallpaperView(galleryImport: $galleryImport, openGallery: { tab = .gallery }) { wallpaperPath.append($0) }
+                ComposeWallpaperView(galleryImport: $galleryImport, openGallery: { tab = .gallery }, openShared: {
+                    gallerySource = .share
+                    tab = .gallery
+                }) { wallpaperPath.append($0) }
                     .navigationDestination(for: WallpaperRoute.self) { destination in
                         switch destination {
                         case .history: CanvasHistoryView()
@@ -69,13 +73,16 @@ struct CanvasHomeView: View {
             .tabItem { Label("壁纸", systemImage: "photo.on.rectangle") }.tag(Tab.wallpaper)
 
             NavigationStack {
-                WallpaperGalleryView { pick in
+                WallpaperGalleryView(source: $gallerySource) { pick in
                     galleryImport = GalleryImport(data: pick.data, source: pick.source, assetID: pick.assetID)
                     wallpaperPath.removeAll()
                     tab = .wallpaper
                 }
             }
             .tabItem { Label("图库", systemImage: "photo.stack") }.tag(Tab.gallery)
+
+            NavigationStack { CanvasHistoryView() }
+                .tabItem { Label("历史记录", systemImage: "clock") }.tag(Tab.history)
 
             NavigationStack { CanvasSettingsView() }
                 .tabItem { Label("设置", systemImage: "gearshape") }.tag(Tab.settings)
@@ -89,22 +96,45 @@ struct CanvasHistoryView: View {
     @EnvironmentObject var model: WorkshopModel
     @State private var clear = false
     @State private var remove: WallpaperCollection?
+    @State private var shareTarget: WallpaperCollection?
+    @State private var shareText = ""
+    @State private var sharingID: UUID?
+    @State private var shareNotes: [UUID: String] = [:]
     var body: some View {
         List {
             if model.collections.isEmpty {
                 ContentUnavailableView("还没有保存的壁纸", systemImage: "photo.stack", description: Text("到“壁纸”选择图片，保存后就会出现在这里。"))
             }
             ForEach(model.collections) { collection in
-                NavigationLink { WallpaperDetailView(collectionID: collection.id) } label: {
-                    HStack(spacing: 14) {
-                        SavedThumbnail(entry: collection.first).frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 15))
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(collection.title).font(.headline).lineLimit(2)
-                            Text(collection.first.created, format: .dateTime.year().month().day().hour().minute()).font(.caption).foregroundStyle(.secondary)
-                            Text("\(collection.mode) · 本地生成").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }.padding(.vertical, 5)
-                }.swipeActions { Button("删除", role: .destructive) { remove = collection }.disabled(model.busy) }
+                ZStack(alignment: .trailing) {
+                    NavigationLink { WallpaperDetailView(collectionID: collection.id) } label: {
+                        HStack(spacing: 12) {
+                            SavedThumbnail(entry: collection.first).frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 15))
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(collection.title).font(.headline).lineLimit(2)
+                                Text(collection.first.created, format: .dateTime.year().month().day().hour().minute()).font(.caption).foregroundStyle(.secondary)
+                                Text("\(collection.mode) · 本地生成").font(.caption).foregroundStyle(.secondary)
+                                if let note = shareNotes[collection.id] {
+                                    Text(note).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer(minLength: 76)
+                        }.padding(.vertical, 5)
+                    }
+                    Button(sharingID == collection.id ? "正在共享…" : "共享") {
+                        shareText = ""
+                        shareTarget = collection
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(CanvasTheme.accent.opacity(0.14), in: Capsule())
+                    .foregroundStyle(CanvasTheme.accent)
+                    .disabled(model.busy || sharingID != nil)
+                    .accessibilityLabel("共享\(collection.title)")
+                }
+                .swipeActions { Button("删除", role: .destructive) { remove = collection }.disabled(model.busy) }
             }
         }.navigationTitle("历史记录").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .toolbar { Button("全部清空") { clear = true }.disabled(model.history.isEmpty || model.busy) }
@@ -114,6 +144,42 @@ struct CanvasHistoryView: View {
             .confirmationDialog("删除这条本地记录？", isPresented: Binding(get: { remove != nil }, set: { if !$0 { remove = nil } }), titleVisibility: .visible) {
                 Button("删除记录", role: .destructive) { if let remove { model.deleteHistory(remove.entries) }; remove = nil }
             }
+            .sheet(item: $shareTarget) { collection in
+                NavigationStack {
+                    Form {
+                        Section {
+                            TextField("写一段介绍，可以留空", text: $shareText, axis: .vertical)
+                                .lineLimit(3...6)
+                        } footer: {
+                            Text("介绍会显示在图库的共享壁纸里。")
+                        }
+                    }
+                    .navigationTitle("共享壁纸")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { Button("取消") { shareTarget = nil } }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("共享") {
+                                let intro = shareText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                shareTarget = nil
+                                share(collection, intro: intro)
+                            }
+                        }
+                    }
+                }
+                .presentationDetents([.medium])
+            }
+    }
+
+    private func share(_ collection: WallpaperCollection, intro: String) {
+        let shown = collection.entries.first { $0.mode == "车机" } ?? collection.first
+        sharingID = collection.id
+        shareNotes[collection.id] = nil
+        Task {
+            defer { sharingID = nil }
+            let ok = await ServiceClient.shared.submitShare(shown, title: collection.title, description: intro)
+            shareNotes[collection.id] = ok ? "已共享到图库的「共享壁纸」。" : "共享失败，请检查网络后重试。"
+        }
     }
 }
 
@@ -133,6 +199,10 @@ struct WallpaperDetailView: View {
     @State private var renaming = false
     @State private var deleting = false
     @State private var name = ""
+    @State private var sharing = false
+    @State private var shareNote: String?
+    @State private var shareDraft = false
+    @State private var shareText = ""
     private var collection: WallpaperCollection? { model.collections.first { $0.id == collectionID } }
     var body: some View {
         Group {
@@ -149,6 +219,9 @@ struct WallpaperDetailView: View {
                     }
                     Section {
                         Button { applying = true } label: { Label("应用到 CarPlay 壁纸", systemImage: "car.side.fill").font(.headline) }.disabled(model.busy)
+                        Button(sharing ? "正在共享…" : "共享到图库") { shareText = ""; shareDraft = true }
+                            .disabled(model.busy || sharing)
+                        if let shareNote { Text(shareNote).font(.footnote).foregroundStyle(.secondary) }
                         ShareLink(items: collection.entries.map(\.bitmap)) { Label("分享 CPBitmap 文件", systemImage: "square.and.arrow.up") }
                         if let dashboard = collection.entries.first(where: { $0.mode == "车机" }) {
                             ShareLink(item: dashboard.originalImage) { Label("分享车机整屏图片", systemImage: "photo") }
@@ -160,6 +233,30 @@ struct WallpaperDetailView: View {
             } else { ContentUnavailableView("记录已删除", systemImage: "photo") }
         }.navigationTitle("壁纸详情").navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $applying) { if let collection { NavigationStack { ApplyWallpaperView(entries: collection.entries) } } }
+            .sheet(isPresented: $shareDraft) {
+                NavigationStack {
+                    Form {
+                        Section {
+                            TextField("写一段介绍，可以留空", text: $shareText, axis: .vertical)
+                                .lineLimit(3...6)
+                        } footer: {
+                            Text("介绍会显示在图库的共享分类里。")
+                        }
+                    }
+                    .navigationTitle("共享壁纸")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { Button("取消") { shareDraft = false } }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("共享") {
+                                shareDraft = false
+                                if let collection { share(collection) }
+                            }
+                        }
+                    }
+                }
+                .presentationDetents([.medium])
+            }
             .alert("重命名", isPresented: $renaming) {
                 TextField("壁纸名称", text: $name)
                 Button("保存") { if let collection { model.renameHistory(collection.entries, name: name) } }
@@ -168,6 +265,18 @@ struct WallpaperDetailView: View {
             .confirmationDialog("只删除本地记录，车机壁纸与恢复备份会保留。", isPresented: $deleting, titleVisibility: .visible) {
                 Button("删除记录", role: .destructive) { if let collection { model.deleteHistory(collection.entries); dismiss() } }
             }
+    }
+
+    private func share(_ collection: WallpaperCollection) {
+        let shown = collection.entries.first { $0.mode == "车机" } ?? collection.first
+        sharing = true
+        shareNote = nil
+        Task {
+            defer { sharing = false }
+            let intro = shareText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let ok = await ServiceClient.shared.submitShare(shown, title: collection.title, description: intro)
+            shareNote = ok ? "已共享到图库的「共享壁纸」。" : "共享失败，请检查网络后重试。"
+        }
     }
 }
 
@@ -358,8 +467,8 @@ struct CanvasGuideView: View {
     @Environment(\.dismiss) private var dismiss
     private let steps = [
         ("生成车机壁纸缓存", "停车后，在车机 CarPlay 的“设置 → 壁纸”中切换几张内置图片壁纸。不同系统的排列可能不同。"),
-        ("选择照片", "在“壁纸”里选相册照片或内置壁纸，也可在“图库”里选择 Bing 图片。需要裁剪时点“裁剪”。"),
-        ("选择目标并应用", "点“应用到 CarPlay”即可生成文件并选择替换目标，原文件会自动备份。历史记录和壁纸缓存位于“壁纸”右上角。"),
+        ("选择照片", "在“壁纸”里选相册照片，或点“共享壁纸”查看大家共享的壁纸。需要裁剪时点“裁剪”。"),
+        ("选择目标并应用", "点“应用到 CarPlay”即可生成文件并选择替换目标，原文件会自动备份。历史记录在底部菜单，壁纸缓存位于“壁纸”右上角。"),
         ("重启 CarPlay，让壁纸生效", "替换后点“重启 CarPlay”，尝试重载系统界面。返回桌面后重新连接车机，确认新壁纸是否生效。若仍显示旧图，请手动重启 iPhone。需要还原时，可在设置中打开“备份与恢复”。")]
     var body: some View {
         NavigationStack {

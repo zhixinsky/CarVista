@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} · CarVista{% endblock %}
 {% block page_title %}{{ title }}{% endblock %}
-{% block page_note %}已发布的图片会直接出现在 App 里。{% endblock %}
+{% block page_note %}切到「发布」后会出现在 App 里，切到「下载」后 App 不再显示。{% endblock %}
 {% block body %}
 <div class="cv-panel mb-3">
   <form class="row g-3 align-items-end p-3" method="post" action="/admin/assets" enctype="multipart/form-data">
@@ -28,39 +28,41 @@
   {% for asset in assets %}
   <div class="col-md-6 col-xl-4">
     <article class="cv-panel media-card">
-      <img class="preview" src="/admin/assets/{{ asset.id }}/preview" alt="">
+      <img class="preview" src="/admin/assets/{{ asset.id }}/preview" alt="{{ asset.title }}">
       <div class="pad">
-        <form method="post" action="/admin/assets/{{ asset.id }}">
+        <div class="cv-card-name">{{ asset.title }}</div>
+        <div class="cv-card-size">{{ asset.width }} × {{ asset.height }}</div>
+        <div class="cv-card-actions">
+          <form class="cv-seg" method="post" action="/admin/assets/{{ asset.id }}">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="title" value="{{ asset.title }}">
+            <button class="{% if asset.published %}on-live{% endif %}" name="published" value="on" type="submit">发布</button>
+            <button class="{% if not asset.published %}on-off{% endif %}" name="published" value="" type="submit">下载</button>
+          </form>
+          <div class="cv-card-links">
+            <button class="cv-link" type="button" onclick="document.getElementById('edit-{{ asset.id }}').showModal()">编辑</button>
+            <form method="post" action="/admin/assets/{{ asset.id }}/delete" onsubmit="return confirm('删除这张壁纸？App 将不再显示它。')">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button class="cv-link-danger" type="submit">删除</button>
+            </form>
+          </div>
+        </div>
+      </div>
+      <dialog class="cv-dialog" id="edit-{{ asset.id }}">
+        <form method="post" action="/admin/assets/{{ asset.id }}/edit" enctype="multipart/form-data">
           <input type="hidden" name="csrf" value="{{ csrf }}">
-          <div class="input-group mb-2">
-            <input class="form-control" name="title" maxlength="60" value="{{ asset.title }}" required>
+          <h2>编辑壁纸</h2>
+          <img src="/admin/assets/{{ asset.id }}/preview" alt="">
+          <label class="form-label mt-3">名称</label>
+          <input class="form-control" name="title" maxlength="60" value="{{ asset.title }}" required>
+          <label class="form-label mt-3">更换图片</label>
+          <input class="form-control" name="file" type="file" accept="image/jpeg,image/png">
+          <div class="actions">
+            <button class="btn btn-outline-secondary" type="button" onclick="this.closest('dialog').close()">取消</button>
             <button class="btn btn-primary" type="submit">保存</button>
           </div>
-          <label class="form-check mb-2">
-            <input class="form-check-input" name="published" type="checkbox" {% if asset.published %}checked{% endif %}>
-            <span class="form-check-label">对 App 发布</span>
-          </label>
         </form>
-        <div class="text-secondary small mb-2">{{ asset.width }} × {{ asset.height }} · {{ "已发布" if asset.published else "未发布" }}</div>
-        <div class="d-flex flex-wrap gap-2">
-          <form method="post" action="/admin/assets/{{ asset.id }}/move">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <button class="btn btn-sm btn-outline-secondary" name="direction" value="up" type="submit">上移</button>
-            <button class="btn btn-sm btn-outline-secondary" name="direction" value="down" type="submit">下移</button>
-          </form>
-          <form method="post" action="/admin/assets/{{ asset.id }}/delete" onsubmit="return confirm('删除这张壁纸？App 将不再显示它。')">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <button class="btn btn-sm btn-outline-danger" type="submit">删除</button>
-          </form>
-        </div>
-        <form class="mt-2" method="post" action="/admin/assets/{{ asset.id }}/replace" enctype="multipart/form-data">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <div class="input-group input-group-sm">
-            <input class="form-control" name="file" type="file" accept="image/jpeg,image/png" required>
-            <button class="btn btn-outline-secondary" type="submit">替换原图</button>
-          </div>
-        </form>
-      </div>
+      </dialog>
     </article>
   </div>
   {% else %}

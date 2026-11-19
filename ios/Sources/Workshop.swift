@@ -78,6 +78,24 @@ final class WorkshopModel: ObservableObject {
         Task { await ServiceClient.shared.record(type: type, ok: ok, payload: payload) }
     }
 
+    func prepareOriginal(_ data: Data, source: String, assetID: String?) async -> [SavedWallpaper] {
+        guard !busy else { return [] }
+        do {
+            var incoming = try await Task.detached { try MakerDraft.importPhoto(data: data) }.value
+            incoming.remoteSource = source
+            incoming.remoteAssetID = assetID
+            return await withCheckedContinuation { continuation in
+                generatePhotos([incoming], preset: .original, size: .zero) { batches in
+                    try? FileManager.default.removeItem(at: incoming.url)
+                    continuation.resume(returning: batches.first ?? [])
+                }
+            }
+        } catch {
+            message = "无法准备壁纸。"
+            return []
+        }
+    }
+
     func reportSaved(_ entries: [SavedWallpaper], source: String, assetID: String?) {
         let groups = Dictionary(grouping: entries) { $0.batchID ?? $0.id }
         for group in groups.values {
@@ -177,18 +195,33 @@ final class WorkshopModel: ObservableObject {
         }
     }
 
-    func makeReport() {
+    func makeReport(upload: Bool = false) {
         do {
-            let object: [String: Any] = ["date": ISO8601DateFormatter().string(from: Date()),
+            let clock = ISO8601DateFormatter()
+            clock.formatOptions = [.withInternetDateTime]
+            clock.timeZone = TimeZone(identifier: "Asia/Shanghai")
+            var object: [String: Any] = ["date": clock.string(from: Date()),
                 "system": UIDevice.current.systemVersion, "model": UIDevice.current.model,
                 "appGroup": group, "root": root, "message": message, "issues": issues,
                 "targets": targets.map(\.raw), "log": CCEngine.logs(),
                 "appVersion": appVersion, "appGroupStatus": appGroupStatus,
                 "lastScan": lastScanSummary ?? "本次启动尚未查找",
                 "lastApply": lastApplySummary ?? "本次启动尚未应用"]
+            var data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+            if data.count > 900_000 {
+                object["log"] = "日志过长，已截断后上传"
+                data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+            }
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("CarVista-\(UUID().uuidString).json")
-            try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
+            try data.write(to: url, options: .atomic)
             reportURL = url
+            if upload {
+                message = "正在上传诊断报告…"
+                Task {
+                    let ok = await ServiceClient.shared.submitReport(data)
+                    self.message = ok ? "诊断报告已上传到后台" : "报告已保存在本机，上传后台失败"
+                }
+            }
         } catch { message = "导出报告失败：\(error.localizedDescription)" }
     }
 
@@ -526,9 +559,9 @@ struct HelpView: View {
                 Text("遇到应用失败时，可直接截取这一区域。查找和应用结果会保留到本次启动结束。")
             }
             Section("报告") {
-                Button("生成诊断报告") { model.makeReport() }.disabled(model.busy)
+                Button("生成诊断报告") { model.makeReport(upload: true) }.disabled(model.busy)
                 if let reportURL = model.reportURL { ShareLink("导出报告", item: reportURL) }
-                Text("报告含目录路径与访问日志，分享前可自行查看。")
+                Text("生成后会自动上传到后台用于排查。报告含目录路径与访问日志，分享前可自行查看。")
             }
             Section("测试步骤") {
                 Text("1. 签名时保留有效 App Group，再安装。")

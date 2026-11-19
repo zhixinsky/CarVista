@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}共享壁纸 · CarVista{% endblock %}
+{% block page_title %}共享壁纸{% endblock %}
+{% block page_note %}用户共享到图库的壁纸，按点赞数排列。{% endblock %}
+{% block body %}
+<div class="row g-3">
+  {% for item in shares %}
+  <div class="col-md-6 col-xl-4">
+    <article class="cv-panel media-card">
+      <img class="preview" src="/v1/shares/{{ item.id }}/preview" alt="{{ item.title }}">
+      <div class="pad">
+        <div class="cv-card-name">{{ item.title }}</div>
+        {% if item.description %}<div class="small">{{ item.description }}</div>{% endif %}
+        <div class="cv-card-size">{{ item.width }} × {{ item.height }} · {{ item.likes }} 赞 · {{ item.created_at | sh }}</div>
+        <div class="text-secondary small"><a href="/admin/users/{{ item.device_id }}">{{ item.internal_name }}</a></div>
+        <form method="post" action="/admin/shares/{{ item.id }}/delete" onsubmit="return confirm('从共享图库移除这张壁纸？')">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="cv-link-danger" type="submit">移除</button>
+        </form>
+      </div>
+    </article>
+  </div>
+  {% else %}
+  <div class="col-12"><div class="cv-panel p-4 text-secondary">还没有共享壁纸。</div></div>
+  {% endfor %}
+</div>
+{% endblock %}

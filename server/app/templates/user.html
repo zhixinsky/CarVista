@@ -1,19 +1,20 @@
 {% extends "base.html" %}
 {% block title %}{{ device.internal_name }} · CarVista{% endblock %}
 {% block page_title %}{{ device.internal_name }}{% endblock %}
-{% block page_note %}{{ device.device_machine }} · iOS {{ device.ios_version }} · {{ device.app_version }} · 首次 {{ device.first_seen }}{% endblock %}
+{% block page_note %}{{ device.device_machine }} · iOS {{ device.ios_version }} · {{ device.app_version }} · 首次 {{ device.first_seen | sh }}{% endblock %}
 {% block body %}
 <h2 class="h4">作品</h2>
 <div class="row g-3 mb-4">
   {% for work in works %}
   <div class="col-md-4 col-xl-3">
-    <a class="cv-panel media-card d-block text-decoration-none text-reset" href="/admin/works/{{ work.id }}/file">
+    <article class="cv-panel media-card">
       <img class="preview" src="/admin/works/{{ work.id }}/file" alt="">
       <div class="pad">
         <div>{{ work.width }} × {{ work.height }} {{ work.mode }}</div>
-        <div class="text-secondary small">{{ work.source }} · {{ work.created_at }}</div>
+        <div class="text-secondary small">{{ work.source }} · {{ work.created_at | sh }}</div>
+        {% if work.original_path %}<a href="/admin/works/{{ work.id }}/original">下载原图</a>{% endif %}
       </div>
-    </a>
+    </article>
   </div>
   {% else %}
   <div class="col-12"><div class="cv-panel p-4 text-secondary">没有作品。</div></div>
@@ -26,7 +27,7 @@
     <tbody>
       {% for event in events %}
       <tr>
-        <td class="text-secondary">{{ event.at }}</td>
+        <td class="text-secondary">{{ event.at | sh }}</td>
         <td>{{ event.type }}</td>
         <td>{{ "成功" if event.ok == 1 else ("失败" if event.ok == 0 else "") }}</td>
         <td class="text-secondary">{{ event.payload }}</td>
@@ -35,4 +36,4 @@
     </tbody>
   </table>
 </div>
-{% endblock %}
+{% endbloc

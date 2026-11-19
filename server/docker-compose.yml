@@ -1,10 +1,10 @@
 services:
   carvista:
-    build:
-      context: ..
-      dockerfile: server/Dockerfile
+    build: .
     restart: unless-stopped
     env_file: .env
+    environment:
+      CARVISTA_PUBLIC_URL: ${CARVISTA_PUBLIC_URL:-https://carplay.dokor.cn}
     ports:
       - "127.0.0.1:8787:8787"
     volumes:

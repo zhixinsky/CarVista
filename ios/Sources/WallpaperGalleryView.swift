@@ -68,13 +68,14 @@ private enum BingGallery {
 }
 
 struct WallpaperGalleryView: View {
-    private enum Source: String, CaseIterable {
-        case bing = "Bing 每日精选", commons = "Commons 主题找图", buick = "别克大联屏"
+    enum Source: String, CaseIterable {
+        case bing = "Bing 每日精选", commons = "Commons 主题找图", buick = "别克大联屏", share = "共享壁纸"
     }
     let use: (GalleryPick) -> Void
-    @State private var source: Source = .bing
+    @Binding var source: Source
     @State private var openedCommons = false
     @State private var openedBuick = false
+    @State private var openedShare = false
 
     var body: some View {
         ZStack {
@@ -94,10 +95,17 @@ struct WallpaperGalleryView: View {
                     .allowsHitTesting(source == .buick)
                     .accessibilityHidden(source != .buick)
             }
+            if openedShare || source == .share {
+                SharedWallpaperGalleryView()
+                    .opacity(source == .share ? 1 : 0)
+                    .allowsHitTesting(source == .share)
+                    .accessibilityHidden(source != .share)
+            }
         }
         .onChange(of: source) { _, value in
             if value == .commons { openedCommons = true }
             if value == .buick { openedBuick = true }
+            if value == .share { openedShare = true }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             Picker("图库来源", selection: $source) {

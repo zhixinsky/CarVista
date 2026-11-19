@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}作品 · CarVista{% endblock %}
-{% block page_title %}作品{% endblock %}
-{% block page_note %}用户保存壁纸后上传的预览。{% endblock %}
+{% block title %}所有作品 · CarVista{% endblock %}
+{% block page_title %}所有作品{% endblock %}
+{% block page_note %}用户保存壁纸后上传的预览。有原图的可以下载。{% endblock %}
 {% block body %}
 <div class="row g-3">
   {% for work in works %}
@@ -11,7 +11,8 @@
       <div class="pad">
         <div><a href="/admin/users/{{ work.device_id }}">{{ work.internal_name }}</a></div>
         <div class="text-secondary small">{{ work.source }} · {{ work.width }} × {{ work.height }} {{ work.mode }}</div>
-        <div class="text-secondary small">{{ work.created_at }}</div>
+        <div class="text-secondary small">{{ work.created_at | sh }}</div>
+        {% if work.original_path %}<a href="/admin/works/{{ work.id }}/original">下载原图</a>{% endif %}
       </div>
     </article>
   </div>

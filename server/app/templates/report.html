@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}诊断报告 · CarVista{% endblock %}
+{% block page_title %}诊断报告{% endblock %}
+{% block page_note %}{{ report.internal_name }} · {{ report.device_machine }} · {{ report.created_at | sh }}{% endblock %}
+{% block body %}
+<div class="cv-panel">
+  <pre class="cv-report">{{ text }}</pre>
+</div>
+{% endblock %}

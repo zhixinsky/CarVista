@@ -3,11 +3,12 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -38,6 +39,8 @@ NAME_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789"
 _HITS: dict[str, list[float]] = {}
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+SHANGHAI = timezone(timedelta(hours=8))
+_INSTANT = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 
 
 def render(request: Request, name: str, context: dict) -> HTMLResponse:
@@ -48,6 +51,62 @@ def render(request: Request, name: str, context: dict) -> HTMLResponse:
 
 def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_instant(value: str) -> datetime:
+    text = str(value).strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    moment = datetime.fromisoformat(text)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc)
+
+
+def format_shanghai(value) -> str:
+    text = str(value or "").strip()
+    if not text or not _INSTANT.match(text):
+        return text
+    try:
+        return parse_instant(text).astimezone(SHANGHAI).strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return text
+
+
+def localize_times(value):
+    if isinstance(value, dict):
+        return {key: localize_times(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [localize_times(item) for item in value]
+    if isinstance(value, str):
+        return format_shanghai(value)
+    return value
+
+
+def shanghai_today() -> tuple[str, str]:
+    start = datetime.now(SHANGHAI).replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+    return (
+        start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        end.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+
+
+templates.env.filters["sh"] = format_shanghai
+
+
+def public_base(request: Request) -> str:
+    """Address phones should use. Synology's proxy talks to 127.0.0.1 and leaves that host in the request."""
+    configured = os.environ.get("CARVISTA_PUBLIC_URL", "").strip().rstrip("/")
+    if configured:
+        return configured
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+    forwarded = request.headers.get("x-forwarded-host", "")
+    host = (forwarded or request.headers.get("host") or request.url.netloc).split(",")[0].strip()
+    name = host.split(":")[0].strip("[]").lower()
+    if name and name not in {"127.0.0.1", "localhost", "::1"}:
+        return f"{proto}://{host}"
+    return "https://carplay.dokor.cn"
 
 
 def create_app() -> FastAPI:
@@ -126,9 +185,9 @@ def create_app() -> FastAPI:
                    WHERE collection = ? AND published = 1 ORDER BY sort_order, created_at""",
                 (stored,),
             ).fetchall()
+        base = public_base(request)
         items = []
         for row in rows:
-            base = str(request.base_url).rstrip("/")
             items.append({
                 "id": row["id"],
                 "title": row["title"],
@@ -179,8 +238,7 @@ def create_app() -> FastAPI:
                     event_type = item.get("type")
                     if event_type not in EVENT_TYPES:
                         raise ValueError
-                    at = item.get("at")
-                    datetime.strptime(at, "%Y-%m-%dT%H:%M:%SZ")
+                    at = parse_instant(item.get("at")).strftime("%Y-%m-%dT%H:%M:%SZ")
                     payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
                     encoded = json.dumps(payload, ensure_ascii=False)
                     if len(encoded) > 8000:
@@ -202,6 +260,38 @@ def create_app() -> FastAPI:
             conn.execute("UPDATE devices SET last_seen = ? WHERE id = ?", (now(), device["id"]))
         return JSONResponse({"accepted": accepted, "rejected": rejected})
 
+    @app.post("/v1/reports")
+    async def post_report(request: Request) -> JSONResponse:
+        device = require_device(request)
+        if limited(f"reports:{device['id']}", 12, 3600):
+            raise HTTPException(429, "诊断报告过于频繁")
+        raw = await request.body()
+        if not raw or len(raw) > 1_000_000:
+            raise HTTPException(400, "诊断报告过大或为空")
+        try:
+            body = json.loads(raw)
+        except json.JSONDecodeError:
+            raise HTTPException(400, "诊断报告无效")
+        if not isinstance(body, dict):
+            raise HTTPException(400, "诊断报告无效")
+        report_id = str(uuid.uuid4())
+        folder = data_dir() / "reports"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{report_id}.json"
+        path.write_text(json.dumps(body, ensure_ascii=False, indent=2), encoding="utf-8")
+        summary = clip(body.get("message") or body.get("lastApply") or body.get("lastScan") or "诊断报告", 200)
+        stamp = now()
+        with connect() as conn:
+            conn.execute(
+                """INSERT INTO reports
+                   (id, device_id, created_at, app_version, ios_version, summary, path, bytes)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (report_id, device["id"], stamp, clip(body.get("appVersion"), 40), clip(body.get("system"), 40),
+                 summary, str(path), len(raw)),
+            )
+            conn.execute("UPDATE devices SET last_seen = ? WHERE id = ?", (stamp, device["id"]))
+        return JSONResponse({"id": report_id})
+
     @app.post("/v1/works")
     async def post_work(
         request: Request,
@@ -213,13 +303,14 @@ def create_app() -> FastAPI:
         mode: str = Form(""),
         created_at: str = Form(""),
         preview: UploadFile = File(),
+        original: UploadFile | None = File(None),
     ) -> JSONResponse:
         device = require_device(request)
         if limited(f"works:{device['id']}", 30, 3600):
             raise HTTPException(429, "作品上报过于频繁")
         try:
             work_id = str(uuid.UUID(id))
-            datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%SZ")
+            created_at = parse_instant(created_at).strftime("%Y-%m-%dT%H:%M:%SZ")
         except (ValueError, TypeError):
             raise HTTPException(400, "作品信息不完整")
         if width < 0 or height < 0 or width > 20000 or height > 20000:
@@ -237,13 +328,23 @@ def create_app() -> FastAPI:
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{work_id}.jpg"
         path.write_bytes(data)
+        original_path = None
+        if original is not None and original.filename:
+            original_data = await original.read()
+            try:
+                suffix = images.valid_original(original_data)
+            except images.ImageRejected as error:
+                raise HTTPException(400, str(error)) from error
+            stored = folder / f"{work_id}-original{suffix}"
+            stored.write_bytes(original_data)
+            original_path = str(stored)
         with connect() as conn:
             conn.execute(
                 """INSERT OR IGNORE INTO works
-                   (id, device_id, created_at, source, source_asset_id, width, height, mode, preview_path)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (id, device_id, created_at, source, source_asset_id, width, height, mode, preview_path, original_path)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (work_id, device["id"], created_at, clip(source, 20), clip(source_asset_id, 40) or None,
-                 width, height, clip(mode, 20), str(path)),
+                 width, height, clip(mode, 20), str(path), original_path),
             )
         return JSONResponse({"ok": True})
 
@@ -279,14 +380,14 @@ def create_app() -> FastAPI:
     def overview(request: Request) -> HTMLResponse:
         require_admin(request)
         prune()
-        today = now()[:10]
+        day_start, day_end = shanghai_today()
         with connect() as conn:
             stats = {
-                "devices": conn.execute("SELECT count(*) FROM devices WHERE first_seen >= ?", (today,)).fetchone()[0],
-                "works": conn.execute("SELECT count(*) FROM works WHERE created_at >= ?", (today,)).fetchone()[0],
+                "devices": conn.execute("SELECT count(*) FROM devices WHERE first_seen >= ? AND first_seen < ?", (day_start, day_end)).fetchone()[0],
+                "works": conn.execute("SELECT count(*) FROM works WHERE created_at >= ? AND created_at < ?", (day_start, day_end)).fetchone()[0],
                 "failures": conn.execute(
-                    "SELECT count(*) FROM events WHERE ok = 0 AND at >= ? AND type IN ('scan_result','apply_result','restore_result')",
-                    (today,),
+                    "SELECT count(*) FROM events WHERE ok = 0 AND at >= ? AND at < ? AND type IN ('scan_result','apply_result','restore_result')",
+                    (day_start, day_end),
                 ).fetchone()[0],
             }
             top = conn.execute(
@@ -374,6 +475,40 @@ def create_app() -> FastAPI:
                 "UPDATE assets SET title = ?, published = ?, updated_at = ? WHERE id = ?",
                 (clean_title, 1 if published else 0, now(), asset_id),
             )
+        return redirect_assets(row["collection"], "已保存")
+
+    @app.post("/admin/assets/{asset_id}/edit")
+    async def edit_asset(
+        request: Request,
+        asset_id: str,
+        title: str = Form(),
+        file: UploadFile | None = File(None),
+        csrf: str = Form(),
+    ) -> RedirectResponse:
+        require_admin(request)
+        check_csrf(request, {"csrf": csrf})
+        clean_title = clip(title.strip(), 60)
+        with connect() as conn:
+            row = conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
+            if row is None or not clean_title:
+                return RedirectResponse("/admin/assets", status_code=303)
+            conn.execute("UPDATE assets SET title = ?, updated_at = ? WHERE id = ?", (clean_title, now(), asset_id))
+        if file is not None and file.filename:
+            data = await file.read()
+            suffix = ".png" if file.filename.lower().endswith(".png") else ".jpg"
+            folder = data_dir() / "media" / asset_id
+            original = folder / f"original{suffix}"
+            preview = folder / "preview.jpg"
+            try:
+                width, height = images.store_original(data, original, preview)
+            except images.ImageRejected as error:
+                return redirect_assets(row["collection"], str(error))
+            with connect() as conn:
+                conn.execute(
+                    """UPDATE assets SET original_path = ?, preview_path = ?, width = ?, height = ?,
+                       bytes = ?, content_hash = ?, updated_at = ? WHERE id = ?""",
+                    (str(original), str(preview), width, height, len(data), hashlib.sha256(data).hexdigest(), now(), asset_id),
+                )
         return redirect_assets(row["collection"], "已保存")
 
     @app.post("/admin/assets/{asset_id}/replace")
@@ -490,10 +625,31 @@ def create_app() -> FastAPI:
             raise HTTPException(404)
         return FileResponse(path, media_type="image/jpeg")
 
-    @app.get("/admin/failures", response_class=HTMLResponse)
-    def failures(request: Request) -> HTMLResponse:
+    @app.get("/admin/works/{work_id}/original")
+    def work_original(request: Request, work_id: str) -> FileResponse:
         require_admin(request)
         with connect() as conn:
+            row = conn.execute("SELECT original_path, width, height FROM works WHERE id = ?", (work_id,)).fetchone()
+        path = images.safe_file(data_dir(), row["original_path"] if row else None)
+        if path is None:
+            raise HTTPException(404)
+        media_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+        name = f"carvista-{row['width']}x{row['height']}{path.suffix.lower()}"
+        return FileResponse(path, media_type=media_type, filename=name)
+
+    @app.get("/admin/failures")
+    def old_failures() -> RedirectResponse:
+        return RedirectResponse("/admin/diagnostics", status_code=303)
+
+    @app.get("/admin/diagnostics", response_class=HTMLResponse)
+    def diagnostics(request: Request) -> HTMLResponse:
+        require_admin(request)
+        with connect() as conn:
+            reports = conn.execute(
+                """SELECT reports.*, devices.internal_name, devices.device_machine FROM reports
+                   JOIN devices ON devices.id = reports.device_id
+                   ORDER BY reports.created_at DESC LIMIT 200"""
+            ).fetchall()
             rows = conn.execute(
                 """SELECT events.*, devices.internal_name, devices.device_machine FROM events
                    JOIN devices ON devices.id = events.device_id
@@ -515,7 +671,173 @@ def create_app() -> FastAPI:
         ranked = sorted(groups.values(), key=lambda item: item["count"], reverse=True)
         for item in ranked:
             item["devices"] = len(item["devices"])
-        return render(request, "failures.html", page(request, section="failures", groups=ranked, failures=parsed[:80]))
+        return render(request, "failures.html", page(
+            request, section="diagnostics", groups=ranked, failures=parsed[:80], reports=reports,
+        ))
+
+    @app.get("/admin/diagnostics/{report_id}", response_class=HTMLResponse)
+    def diagnostic_report(request: Request, report_id: str) -> HTMLResponse:
+        require_admin(request)
+        with connect() as conn:
+            row = conn.execute(
+                """SELECT reports.*, devices.internal_name, devices.device_machine FROM reports
+                   JOIN devices ON devices.id = reports.device_id WHERE reports.id = ?""",
+                (report_id,),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(404)
+        path = images.safe_file(data_dir(), row["path"])
+        if path is None:
+            text = "报告文件已丢失。"
+        else:
+            try:
+                text = json.dumps(localize_times(json.loads(path.read_text(encoding="utf-8"))), ensure_ascii=False, indent=2)
+            except json.JSONDecodeError:
+                text = path.read_text(encoding="utf-8")
+        return render(request, "report.html", page(request, section="diagnostics", report=row, text=text))
+
+    @app.get("/v1/shares")
+    def list_shares(request: Request) -> JSONResponse:
+        device = optional_device(request)
+        device_id = device["id"] if device else ""
+        base = public_base(request)
+        with connect() as conn:
+            rows = conn.execute(
+                """SELECT shares.id, shares.title, shares.description, shares.width, shares.height, shares.created_at,
+                          (SELECT count(*) FROM share_likes WHERE share_id = shares.id) AS likes,
+                          EXISTS(SELECT 1 FROM share_likes WHERE share_id = shares.id AND device_id = ?) AS liked
+                   FROM shares
+                   ORDER BY likes DESC, shares.created_at DESC
+                   LIMIT 100""",
+                (device_id,),
+            ).fetchall()
+        items = [{
+            "id": row["id"],
+            "title": row["title"],
+            "description": row["description"] or "",
+            "width": row["width"] or 0,
+            "height": row["height"] or 0,
+            "likes": row["likes"],
+            "liked": bool(row["liked"]),
+            "preview_url": f"{base}/v1/shares/{row['id']}/preview",
+            "original_url": f"{base}/v1/shares/{row['id']}/original",
+            "created_at": row["created_at"],
+        } for row in rows]
+        return JSONResponse({"items": items})
+
+    @app.post("/v1/shares")
+    async def create_share(
+        request: Request,
+        id: str = Form(),
+        title: str = Form(""),
+        description: str = Form(""),
+        width: int = Form(0),
+        height: int = Form(0),
+        preview: UploadFile = File(),
+        original: UploadFile = File(),
+    ) -> JSONResponse:
+        device = require_device(request)
+        if limited(f"shares:{device['id']}", 30, 3600):
+            raise HTTPException(429, "共享过于频繁")
+        try:
+            share_id = str(uuid.UUID(id))
+        except (ValueError, TypeError):
+            raise HTTPException(400, "共享信息不完整")
+        if width < 1 or height < 1 or width > 20000 or height > 20000:
+            raise HTTPException(400, "尺寸无效")
+        clean_title = clip(title, 60) or "共享壁纸"
+        clean_description = clip(description, 200)
+        with connect() as conn:
+            if conn.execute("SELECT 1 FROM shares WHERE id = ?", (share_id,)).fetchone():
+                conn.execute("UPDATE shares SET description = ? WHERE id = ?", (clean_description, share_id))
+                return JSONResponse({"ok": True, "duplicate": True})
+        preview_data = await preview.read()
+        original_data = await original.read()
+        try:
+            images.valid_preview(preview_data)
+            suffix = images.valid_original(original_data)
+        except images.ImageRejected as error:
+            raise HTTPException(400, str(error)) from error
+        folder = data_dir() / "shares" / share_id
+        folder.mkdir(parents=True, exist_ok=True)
+        preview_path = folder / "preview.jpg"
+        original_path = folder / f"original{suffix}"
+        preview_path.write_bytes(preview_data)
+        original_path.write_bytes(original_data)
+        with connect() as conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO shares
+                   (id, device_id, title, description, width, height, preview_path, original_path, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (share_id, device["id"], clean_title, clean_description, width, height, str(preview_path), str(original_path), now()),
+            )
+        return JSONResponse({"ok": True})
+
+    @app.post("/v1/shares/{share_id}/like")
+    def like_share(request: Request, share_id: str) -> JSONResponse:
+        device = require_device(request)
+        if limited(f"likes:{device['id']}", 120, 3600):
+            raise HTTPException(429, "点赞过于频繁")
+        with connect() as conn:
+            row = conn.execute("SELECT 1 FROM shares WHERE id = ?", (share_id,)).fetchone()
+            if row is None:
+                raise HTTPException(404)
+            liked = conn.execute(
+                "SELECT 1 FROM share_likes WHERE share_id = ? AND device_id = ?",
+                (share_id, device["id"]),
+            ).fetchone()
+            if liked:
+                conn.execute("DELETE FROM share_likes WHERE share_id = ? AND device_id = ?", (share_id, device["id"]))
+            else:
+                conn.execute(
+                    "INSERT INTO share_likes (share_id, device_id, created_at) VALUES (?, ?, ?)",
+                    (share_id, device["id"], now()),
+                )
+            likes = conn.execute("SELECT count(*) FROM share_likes WHERE share_id = ?", (share_id,)).fetchone()[0]
+        return JSONResponse({"likes": likes, "liked": not liked})
+
+    @app.get("/v1/shares/{share_id}/{kind}")
+    def share_media(share_id: str, kind: str) -> FileResponse:
+        if kind not in {"preview", "original"}:
+            raise HTTPException(404)
+        column = "preview_path" if kind == "preview" else "original_path"
+        with connect() as conn:
+            row = conn.execute(f"SELECT {column} AS path FROM shares WHERE id = ?", (share_id,)).fetchone()
+        path = images.safe_file(data_dir(), row["path"] if row else None)
+        if path is None:
+            raise HTTPException(404)
+        media_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+        return FileResponse(path, media_type=media_type)
+
+    @app.get("/admin/shares", response_class=HTMLResponse)
+    def admin_shares(request: Request) -> HTMLResponse:
+        require_admin(request)
+        with connect() as conn:
+            rows = conn.execute(
+                """SELECT shares.*, devices.internal_name,
+                          (SELECT count(*) FROM share_likes WHERE share_id = shares.id) AS likes
+                   FROM shares JOIN devices ON devices.id = shares.device_id
+                   ORDER BY likes DESC, shares.created_at DESC LIMIT 200"""
+            ).fetchall()
+        return render(request, "shares.html", page(request, section="shares", shares=rows))
+
+    @app.post("/admin/shares/{share_id}/delete")
+    async def delete_share(request: Request, share_id: str, csrf: str = Form()) -> RedirectResponse:
+        require_admin(request)
+        check_csrf(request, {"csrf": csrf})
+        with connect() as conn:
+            row = conn.execute("SELECT preview_path, original_path FROM shares WHERE id = ?", (share_id,)).fetchone()
+            conn.execute("DELETE FROM share_likes WHERE share_id = ?", (share_id,))
+            conn.execute("DELETE FROM shares WHERE id = ?", (share_id,))
+        if row:
+            for column in ("preview_path", "original_path"):
+                path = images.safe_file(data_dir(), row[column])
+                if path:
+                    path.unlink(missing_ok=True)
+            folder = data_dir() / "shares" / share_id
+            if folder.is_dir():
+                folder.rmdir()
+        return RedirectResponse("/admin/shares?msg=已移除", status_code=303)
 
     return app
 
@@ -539,6 +861,16 @@ def check_csrf(request: Request, form) -> None:
     stored = str(request.session.get("csrf", ""))
     if not stored or not hmac.compare_digest(given, stored):
         raise HTTPException(403, "页面已过期，请刷新后重试")
+
+
+def optional_device(request: Request):
+    header = request.headers.get("authorization", "")
+    if not header.lower().startswith("bearer "):
+        return None
+    try:
+        return require_device(request)
+    except HTTPException:
+        return None
 
 
 def require_device(request: Request):

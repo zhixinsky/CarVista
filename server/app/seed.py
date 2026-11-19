@@ -16,6 +16,9 @@ def seed_root() -> Path | None:
     if raw:
         path = Path(raw)
         return path if path.is_dir() else None
+    bundled = Path(__file__).resolve().parents[1] / "seed" / "wallpapers"
+    if (bundled / "Builtin0.jpg").is_file():
+        return bundled
     fallback = Path(__file__).resolve().parents[2] / "ios" / "BuiltinWallpapers"
     return fallback if (fallback / "Builtin0.jpg").is_file() else None
 

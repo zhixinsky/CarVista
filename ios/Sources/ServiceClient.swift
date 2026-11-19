@@ -69,13 +69,91 @@ actor ServiceClient {
         field("created_at", Self.stamp(entry.created))
         body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"preview\"; filename=\"preview.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".utf8))
         body.append(preview)
+        if let original = try? Data(contentsOf: entry.originalImage), !original.isEmpty {
+            body.append(Data("\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"original\"; filename=\"original.png\"\r\nContent-Type: image/png\r\n\r\n".utf8))
+            body.append(original)
+        }
         body.append(Data("\r\n--\(boundary)--\r\n".utf8))
-        var request = URLRequest(url: Self.endpoint("v1/works"), timeoutInterval: 20)
+        var request = URLRequest(url: Self.endpoint("v1/works"), timeoutInterval: 60)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         _ = try? await URLSession.shared.data(for: request)
+    }
+
+    func submitReport(_ data: Data) async -> Bool {
+        guard ServiceGate.enabled, data.count <= 1_000_000 else { return false }
+        guard let token = await ensureToken() else { return false }
+        var request = URLRequest(url: Self.endpoint("v1/reports"), timeoutInterval: 30)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return false }
+            return true
+        } catch { return false }
+    }
+
+    func submitShare(_ entry: SavedWallpaper, title: String, description: String) async -> Bool {
+        guard ServiceGate.enabled else { return false }
+        guard let preview = try? Data(contentsOf: entry.preview), !preview.isEmpty,
+              let original = try? Data(contentsOf: entry.originalImage), !original.isEmpty else { return false }
+        guard let token = await ensureToken() else { return false }
+        let boundary = "CarVista\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        var body = Data()
+        func field(_ name: String, _ value: String) {
+            body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
+        }
+        field("id", entry.id.uuidString)
+        field("title", title)
+        field("description", String(description.prefix(200)))
+        field("width", String(entry.width))
+        field("height", String(entry.height))
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"preview\"; filename=\"preview.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".utf8))
+        body.append(preview)
+        body.append(Data("\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"original\"; filename=\"original.png\"\r\nContent-Type: image/png\r\n\r\n".utf8))
+        body.append(original)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        var request = URLRequest(url: Self.endpoint("v1/shares"), timeoutInterval: 60)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return false }
+            return true
+        } catch { return false }
+    }
+
+    func fetchShares() async -> [SharedWallpaper]? {
+        guard ServiceGate.enabled else { return nil }
+        var request = URLRequest(url: Self.endpoint("v1/shares"), timeoutInterval: 20)
+        if let token = await ensureToken() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return nil }
+            return try JSONDecoder().decode(ShareFeed.self, from: data).items.map(SharedWallpaper.init)
+        } catch { return nil }
+    }
+
+    func toggleLike(_ id: String) async -> (likes: Int, liked: Bool)? {
+        guard ServiceGate.enabled, let token = await ensureToken() else { return nil }
+        var request = URLRequest(url: Self.endpoint("v1/shares/\(id)/like"), timeoutInterval: 15)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                  let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let likes = object["likes"] as? Int, let liked = object["liked"] as? Bool else { return nil }
+            return (likes, liked)
+        } catch { return nil }
     }
 
     private func flush() async {
@@ -155,6 +233,12 @@ actor ServiceClient {
         ServiceGate.join(path)
     }
 
+    static func publicURL(_ url: URL) -> URL {
+        guard let host = url.host?.lowercased(), ["127.0.0.1", "localhost", "::1"].contains(host) else { return url }
+        let path = url.path.split(separator: "/").joined(separator: "/")
+        return ServiceGate.join(path)
+    }
+
     private static func queueURL() throws -> URL {
         let base = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let directory = base.appendingPathComponent("CarVistaService", isDirectory: true)
@@ -165,7 +249,7 @@ actor ServiceClient {
     private static func stamp(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
         return formatter.string(from: date)
     }
 }

@@ -40,15 +40,30 @@
     }
     .cv-brand img { width: 36px; height: 36px; border-radius: 10px; }
     .cv-nav { display: flex; flex-direction: column; gap: 4px; }
+    .cv-nav a, .cv-group-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
     .cv-nav a {
-      display: block;
       padding: 10px 12px;
       border-radius: 12px;
       color: #3d4b5c;
       text-decoration: none;
     }
+    .cv-ico { width: 18px; height: 18px; flex: none; }
+    .cv-report {
+      margin: 0;
+      padding: 18px 20px 22px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.55;
+    }
     .cv-nav a:hover { background: rgba(11, 122, 134, 0.06); color: #0b7a86; }
     .cv-nav a.active { background: #e7f5f6; color: #0b7a86; font-weight: 650; }
+    .cv-group-title { padding: 10px 12px 2px; color: #3d4b5c; }
+    .cv-nav a.cv-sub { margin-left: 12px; }
     .cv-main { margin-left: 284px; min-height: 100vh; }
     .cv-top {
       display: flex;
@@ -74,8 +89,33 @@
     .cv-table th, .cv-table td { padding: 14px 18px; text-align: left; border-bottom: 1px solid #eef2f5; vertical-align: top; }
     .cv-table tr:last-child td { border-bottom: 0; }
     .media-card { overflow: hidden; }
-    .media-card img.preview { width: 100%; height: 118px; object-fit: cover; background: #e7eef2; display: block; }
-    .media-card .pad { padding: 14px 14px 16px; }
+    .media-card img.preview { width: 100%; aspect-ratio: 2.35 / 1; object-fit: cover; background: #e7eef2; display: block; }
+    .media-card .pad { padding: 14px 16px 16px; }
+    .cv-card-name { font-size: 16px; font-weight: 650; letter-spacing: -0.02em; }
+    .cv-card-size { margin-top: 4px; color: #6b7787; font-size: 13px; }
+    .cv-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+    .cv-seg { display: inline-flex; padding: 3px; border-radius: 999px; background: #eef3f6; }
+    .cv-seg button {
+      border: 0; background: transparent; color: #5c6b7a; border-radius: 999px;
+      padding: 6px 14px; font-size: 13px; line-height: 1.2;
+    }
+    .cv-seg button.on-live { background: #0b7a86; color: #fff; }
+    .cv-seg button.on-off { background: #fff; color: #172033; box-shadow: 0 1px 3px rgba(23, 32, 51, 0.08); }
+    .cv-card-links { display: flex; align-items: center; gap: 4px; }
+    .cv-link, .cv-link-danger {
+      border: 0; background: transparent; padding: 6px 8px; font-size: 14px; color: #0b7a86;
+    }
+    .cv-link-danger { color: #c2414a; }
+    .cv-dialog {
+      width: min(480px, calc(100vw - 32px));
+      padding: 0; border: 0; border-radius: 22px;
+      box-shadow: 0 24px 80px rgba(23, 32, 51, 0.2);
+    }
+    .cv-dialog::backdrop { background: rgba(23, 32, 51, 0.38); }
+    .cv-dialog form { padding: 22px; }
+    .cv-dialog h2 { margin: 0 0 14px; font-size: 20px; letter-spacing: -0.03em; }
+    .cv-dialog img { width: 100%; aspect-ratio: 2.35 / 1; object-fit: cover; border-radius: 14px; background: #e7eef2; }
+    .cv-dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
     .cv-menu-btn { display: none; }
     @media (max-width: 991px) {
       .cv-side { position: static; width: auto; margin: 12px; }
@@ -95,12 +135,15 @@
       <button class="btn btn-sm cv-menu-btn" type="button" data-bs-toggle="collapse" data-bs-target="#cv-nav" aria-label="打开菜单">菜单</button>
     </div>
     <nav class="cv-nav collapse show" id="cv-nav">
-      <a class="{% if section == 'overview' %}active{% endif %}" href="/admin">概览</a>
-      <a class="{% if section == 'builtin' %}active{% endif %}" href="/admin/assets?collection=builtin">内置壁纸</a>
-      <a class="{% if section == 'buick_gallery' %}active{% endif %}" href="/admin/assets?collection=buick_gallery">别克大联屏</a>
-      <a class="{% if section == 'users' %}active{% endif %}" href="/admin/users">用户</a>
-      <a class="{% if section == 'works' %}active{% endif %}" href="/admin/works">作品</a>
-      <a class="{% if section == 'failures' %}active{% endif %}" href="/admin/failures">故障</a>
+      <a class="{% if section == 'overview' %}active{% endif %}" href="/admin"><svg class="cv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>概览</a>
+      <div class="cv-group">
+        <div class="cv-group-title"><svg class="cv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7.5V18a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-7l-2-2H5a2 2 0 0 0-2 2.5z"/></svg>图库</div>
+        <a class="cv-sub {% if section == 'buick_gallery' %}active{% endif %}" href="/admin/assets?collection=buick_gallery"><svg class="cv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M8 12h8"/></svg>别克大联屏</a>
+        <a class="cv-sub {% if section == 'shares' %}active{% endif %}" href="/admin/shares"><svg class="cv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.4"/><path d="M21 16l-5-4-4 3-2-1.5L3 17"/></svg>共享壁纸</a>
+      </div>
+      <a class="{% if section == 'users' %}active{% endif %}" href="/admin/users"><svg class="cv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><circle cx="17" cy="9" r="2.2"/><path d="M16.2 19a4.5 4.5 0 0 1 4.3-3"/></svg>用户信息</a>
+      <a class="{% if section == 'works' %}active{% endif %}" href="/admin/works"><svg class="cv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3l2.2 4.6L19 8.2l-3.5 3.4.8 4.9L12 14.8 7.7 16.5l.8-4.9L5 8.2l4.8-.6z"/></svg>所有作品</a>
+      <a class="{% if section == 'diagnostics' %}active{% endif %}" href="/admin/diagnostics"><svg class="cv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 4h8v3H8z"/><rect x="5" y="6" width="14" height="14" rx="2"/><path d="M8 13h3l1.2-2 1.6 4 1.2-2H16"/></svg>诊断</a>
     </nav>
   </aside>
   <div class="cv-main">

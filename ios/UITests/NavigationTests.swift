@@ -2,19 +2,17 @@ import XCTest
 
 final class NavigationTests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
-    func testBuiltinSelectionUsesOriginalSize() throws {
+    func testSharedSectionOpensGallery() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-CCGuideSeen", "YES", "-CarVistaOfflineCatalog"]
         app.launch()
-        let wallpaper = app.buttons["壁纸 1"]
-        for _ in 0..<3 { if wallpaper.isHittable { break }; app.swipeUp() }
-        XCTAssertTrue(wallpaper.isHittable)
-        wallpaper.tap()
-        let output = app.staticTexts["maker.output"]
-        let originalSize = NSPredicate(format: "label CONTAINS %@", "4064 × 1112")
-        expectation(for: originalSize, evaluatedWith: output)
-        waitForExpectations(timeout: 10)
-        capture(app, "10-Builtin-Original")
+        let shortcut = app.buttons["wallpaper.shared"]
+        for _ in 0..<3 { if shortcut.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(shortcut.waitForExistence(timeout: 5))
+        shortcut.tap()
+        XCTAssertTrue(app.navigationBars["图库"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["当前无法连接后台。"].waitForExistence(timeout: 5))
+        capture(app, "10-Shared-Gallery")
     }
     private func capture(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
@@ -30,12 +28,11 @@ final class NavigationTests: XCTestCase {
         capture(app, "01-Home")
         XCTAssertTrue(app.navigationBars["壁纸"].waitForExistence(timeout: 5))
         capture(app, "02-Wallpaper-NoCarRequired")
-        let tools = app.buttons["wallpaper.tools"]
-        tools.tap()
-        app.buttons["历史记录"].tap()
+        app.tabBars.buttons["历史记录"].tap()
         XCTAssertTrue(app.navigationBars["历史记录"].waitForExistence(timeout: 5))
         capture(app, "03-History")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.tabBars.buttons["壁纸"].tap()
+        let tools = app.buttons["wallpaper.tools"]
         tools.tap()
         app.buttons["壁纸缓存"].tap()
         XCTAssertTrue(app.navigationBars["CarPlay 壁纸缓存"].waitForExistence(timeout: 5))

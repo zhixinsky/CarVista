@@ -23,6 +23,25 @@ def valid_preview(data: bytes) -> None:
         raise ImageRejected("预览图无效") from error
 
 
+def valid_original(data: bytes) -> str:
+    if not data:
+        raise ImageRejected("原图是空的")
+    if len(data) > MAX_BYTES:
+        raise ImageRejected("原图超过 40MB")
+    try:
+        probe = Image.open(io.BytesIO(data))
+        probe.verify()
+        image = Image.open(io.BytesIO(data))
+        image.load()
+    except (UnidentifiedImageError, OSError) as error:
+        raise ImageRejected("无法读取原图") from error
+    if image.format not in {"JPEG", "PNG"}:
+        raise ImageRejected("原图只接受 JPEG 或 PNG")
+    if image.width < 1 or image.height < 1 or image.width * image.height > MAX_PIXELS:
+        raise ImageRejected("原图尺寸无效或像素过多")
+    return ".png" if image.format == "PNG" else ".jpg"
+
+
 def store_original(data: bytes, original: Path, preview: Path) -> tuple[int, int]:
     if not data:
         raise ImageRejected("文件是空的")

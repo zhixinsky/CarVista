@@ -76,21 +76,76 @@ def init_db() -> None:
                 preview_path TEXT,
                 FOREIGN KEY(device_id) REFERENCES devices(id)
             );
+            CREATE TABLE IF NOT EXISTS reports (
+                id TEXT PRIMARY KEY,
+                device_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                app_version TEXT,
+                ios_version TEXT,
+                summary TEXT,
+                path TEXT NOT NULL,
+                bytes INTEGER,
+                FOREIGN KEY(device_id) REFERENCES devices(id)
+            );
             CREATE INDEX IF NOT EXISTS events_device ON events(device_id, at);
             CREATE INDEX IF NOT EXISTS events_failures ON events(type, ok, at);
+            CREATE TABLE IF NOT EXISTS shares (
+                id TEXT PRIMARY KEY,
+                device_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                width INTEGER,
+                height INTEGER,
+                preview_path TEXT NOT NULL,
+                original_path TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(device_id) REFERENCES devices(id)
+            );
+            CREATE TABLE IF NOT EXISTS share_likes (
+                share_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (share_id, device_id),
+                FOREIGN KEY(share_id) REFERENCES shares(id) ON DELETE CASCADE,
+                FOREIGN KEY(device_id) REFERENCES devices(id)
+            );
+            CREATE INDEX IF NOT EXISTS reports_created ON reports(created_at);
+            CREATE INDEX IF NOT EXISTS shares_created ON shares(created_at);
             """
         )
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(works)")}
+        if "original_path" not in columns:
+            conn.execute("ALTER TABLE works ADD COLUMN original_path TEXT")
+        share_columns = {row[1] for row in conn.execute("PRAGMA table_info(shares)")}
+        if share_columns and "description" not in share_columns:
+            conn.execute("ALTER TABLE shares ADD COLUMN description TEXT NOT NULL DEFAULT ''")
 
 
 def prune(days: int = 180) -> None:
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
     with connect() as conn:
-        old_works = conn.execute("SELECT id, preview_path FROM works WHERE created_at < ?", (cutoff,)).fetchall()
+        old_works = conn.execute("SELECT id, preview_path, original_path FROM works WHERE created_at < ?", (cutoff,)).fetchall()
         for row in old_works:
-            if row["preview_path"]:
-                try:
-                    Path(row["preview_path"]).unlink(missing_ok=True)
-                except OSError:
-                    pass
+            for column in ("preview_path", "original_path"):
+                if row[column]:
+                    try:
+                        Path(row[column]).unlink(missing_ok=True)
+                    except OSError:
+                        pass
         conn.execute("DELETE FROM works WHERE created_at < ?", (cutoff,))
         conn.execute("DELETE FROM events WHERE at < ?", (cutoff,))
+        old_reports = conn.execute("SELECT path FROM reports WHERE created_at < ?", (cutoff,)).fetchall()
+        for row in old_reports:
+            try:
+                Path(row["path"]).unlink(missing_ok=True)
+            except OSError:
+                pass
+        conn.execute("DELETE FROM reports WHERE created_at < ?", (cutoff,))
+        old_shares = conn.execute("SELECT preview_path, original_path FROM shares WHERE created_at < ?", (cutoff,)).fetchall()
+        for row in old_shares:
+            for column in ("preview_path", "original_path"):
+                try:
+                    Path(row[column]).unlink(missing_ok=True)
+                except OSError:
+                    pass
+        conn.execute("DELETE FROM shares WHERE created_at < ?", (cutoff,))

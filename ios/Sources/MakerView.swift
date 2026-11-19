@@ -3,11 +3,17 @@ import SwiftUI
 import PhotosUI
 import Photos
 
+private struct CatalogApply: Identifiable {
+    let id = UUID()
+    let entries: [SavedWallpaper]
+}
+
 struct ComposeWallpaperView: View {
     @EnvironmentObject var model: WorkshopModel
     @Binding var galleryImport: GalleryImport?
     private let openTool: ((WallpaperRoute) -> Void)?
     private let openGallery: (() -> Void)?
+    private let openShared: (() -> Void)?
     @State private var tool: WallpaperRoute?
     @State private var photos: [MakerPhoto] = []
     @State private var selection: PhotosPickerItem?
@@ -19,13 +25,16 @@ struct ComposeWallpaperView: View {
     @State private var generatedAlert = false
     @State private var cropOrientation = CropOrientationSession()
     @State private var applying = false
+    @State private var catalogApply: CatalogApply?
+    @State private var sharedTop: [SharedWallpaper] = []
+    @State private var sharedNote = ""
+    @State private var sharedBusy: String?
     @State private var problem: String?
     @State private var generated: [UUID: [SavedWallpaper]] = [:]
     @State private var preview: UIImage?
     @State private var previewing = false
     @State private var initialized = false
     @State private var sourcePixels: CGSize?
-    @StateObject private var builtinCatalog = CatalogStore(collection: .builtin)
     private var photo: MakerPhoto? { photos.indices.contains(current) ? photos[current] : nil }
     private var outputSize: CGSize {
         if let crop = photo?.adjustment.pixelCrop { return crop.rect.size }
@@ -33,10 +42,11 @@ struct ComposeWallpaperView: View {
         let turns = (((photo?.adjustment.turns ?? 0) % 4) + 4) % 4
         return turns % 2 == 0 ? sourcePixels : CGSize(width: sourcePixels.height, height: sourcePixels.width)
     }
-    init(galleryImport: Binding<GalleryImport?> = .constant(nil), openGallery: (() -> Void)? = nil, openTool: ((WallpaperRoute) -> Void)? = nil) {
+    init(galleryImport: Binding<GalleryImport?> = .constant(nil), openGallery: (() -> Void)? = nil, openShared: (() -> Void)? = nil, openTool: ((WallpaperRoute) -> Void)? = nil) {
         _galleryImport = galleryImport
         self.openTool = openTool
         self.openGallery = openGallery
+        self.openShared = openShared
     }
     private var outputLabel: String {
         guard outputSize.width > 0, outputSize.height > 0 else { return "读取原图尺寸…" }
@@ -141,24 +151,35 @@ struct ComposeWallpaperView: View {
                     .id("currentWallpaper")
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("内置壁纸（别克专用）").font(.headline)
-                    Text("列表来自后台，点选后可应用到 CarPlay。").font(.caption).foregroundStyle(.secondary)
-                    if !builtinCatalog.note.isEmpty {
-                        Text(builtinCatalog.note).font(.caption).foregroundStyle(.secondary)
+                    Button { openShared?() } label: {
+                        HStack {
+                            Text("共享壁纸").font(.headline)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                        }
+                    }.buttonStyle(.plain).disabled(openShared == nil).accessibilityIdentifier("wallpaper.shared")
+                    if !sharedNote.isEmpty {
+                        Text(sharedNote).font(.caption).foregroundStyle(.secondary)
                     }
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack {
-                            ForEach(builtinCatalog.items) { item in
-                                Button { selectCatalog(item) } label: {
-                                    VStack {
-                                        CatalogThumb(item: item)
-                                            .frame(width: 160, height: 44)
-                                            .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
-                                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                                            .accessibilityHidden(true)
-                                        Text(item.title).font(.caption)
-                                    }.contentShape(Rectangle())
-                                }.buttonStyle(.plain).disabled(locked)
+                        HStack(spacing: 12) {
+                            ForEach(sharedTop) { item in
+                                Button { applyShared(item) } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        AsyncImage(url: item.previewURL) { image in
+                                            image.resizable().scaledToFill()
+                                        } placeholder: {
+                                            Color(uiColor: .tertiarySystemFill)
+                                        }
+                                        .frame(width: 160, height: 44)
+                                        .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        .accessibilityHidden(true)
+                                        Text(item.title).font(.caption).lineLimit(1)
+                                        Label("\(item.likes)", systemImage: "heart")
+                                            .font(.caption2).foregroundStyle(.secondary)
+                                    }.frame(width: 160, alignment: .leading).contentShape(Rectangle())
+                                }.buttonStyle(.plain).disabled(locked || sharedBusy != nil)
                             }
                         }
                     }
@@ -202,7 +223,7 @@ struct ComposeWallpaperView: View {
                 }
             }
             .onAppear { initialize() }
-            .task { await builtinCatalog.refresh() }
+            .task { await loadShared() }
             .alert("已保存到相册", isPresented: $savedToPhotos) { Button("好", role: .cancel) {} }
             .alert("壁纸文件已生成", isPresented: $generatedAlert) {
                 Button("查看历史记录") { showTool(.history) }
@@ -224,6 +245,9 @@ struct ComposeWallpaperView: View {
             }
             .sheet(isPresented: $applying) {
                 if let photo, let entries = generated[photo.id] { NavigationStack { ApplyWallpaperView(entries: entries) } }
+            }
+            .sheet(item: $catalogApply) { apply in
+                NavigationStack { ApplyWallpaperView(entries: apply.entries) }
             }
     }
 
@@ -287,24 +311,44 @@ struct ComposeWallpaperView: View {
             problem = "导入图库照片失败：\(error.localizedDescription)"
         }
     }
-    private func selectCatalog(_ item: CatalogItem) {
-        guard !locked else { return }
+    private func loadShared() async {
+        guard ServiceGate.enabled else {
+            sharedNote = "当前无法连接后台。"
+            sharedTop = []
+            return
+        }
+        guard let remote = await ServiceClient.shared.fetchShares() else {
+            sharedNote = sharedTop.isEmpty ? "无法加载共享壁纸。" : ""
+            return
+        }
+        sharedTop = Array(remote.prefix(10))
+        sharedNote = remote.isEmpty ? "还没有人共享壁纸。" : ""
+    }
+
+    private func applyShared(_ item: SharedWallpaper) {
+        guard !locked, sharedBusy == nil else { return }
         loading = true
+        sharedBusy = item.id
         problem = nil
         Task {
-            defer { loading = false }
+            defer {
+                loading = false
+                sharedBusy = nil
+            }
             do {
-                let data = try await CatalogLibrary.originalData(item)
-                var incoming = try await Task.detached { try MakerDraft.importPhoto(data: data) }.value
-                incoming.sourceName = "内置\(item.title)"
-                incoming.remoteSource = "builtin"
-                incoming.remoteAssetID = item.remote?.id
-                try replaceCurrent(with: incoming)
-                await ServiceClient.shared.record(type: "pick_catalog", ok: true, payload: [
-                    "collection": "builtin", "title": item.title, "asset_id": item.remote?.id ?? ""
-                ])
+                let (data, response) = try await URLSession.shared.data(from: item.originalURL)
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else {
+                    problem = "无法下载这张壁纸。"
+                    return
+                }
+                let ready = await model.prepareOriginal(data, source: "share", assetID: item.id)
+                guard !ready.isEmpty else {
+                    problem = model.message
+                    return
+                }
+                catalogApply = CatalogApply(entries: ready)
             } catch {
-                problem = "导入内置壁纸失败：\(error.localizedDescription)"
+                problem = "无法下载这张壁纸。"
             }
         }
     }
@@ -418,3 +462,4 @@ private struct MakerThumbnail: View {
             .task(id: url) { image = await Task.detached { try? WallpaperRenderer.load(url, maximum: 160) }.value }
     }
 }
+                                                                                                                              

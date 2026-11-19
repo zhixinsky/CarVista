@@ -54,6 +54,8 @@ def test_catalog_hides_unpublished_and_names(client: TestClient) -> None:
     assert body["items"][0]["title"] == "海岸"
     assert body["items"][0]["preview_url"].endswith("/preview")
     assert "internal_name" not in catalog.text
+    local = client.get("/v1/catalog/builtin", headers={"host": "127.0.0.1", "x-forwarded-proto": "https"})
+    assert local.json()["items"][0]["preview_url"].startswith("https://carplay.dokor.cn/v1/media/")
     media = client.get(body["items"][0]["preview_url"].replace("http://testserver", ""))
     assert media.status_code == 200
     assert media.headers["content-type"].startswith("image/jpeg")
@@ -99,13 +101,45 @@ def test_device_token_does_not_reveal_internal_name(client: TestClient) -> None:
         headers={"Authorization": f"Bearer {token}"},
     )
     assert again.json()["duplicate"] is True
+    original_id = str(uuid.uuid4())
+    original = io.BytesIO()
+    Image.new("RGB", (40, 20), (10, 40, 80)).save(original, "PNG")
+    with_original = client.post(
+        "/v1/works",
+        data={"id": original_id, "source": "photo", "width": 40, "height": 20, "mode": "深色", "created_at": "2026-11-19T04:00:00Z"},
+        files={
+            "preview": ("preview.jpg", jpeg_bytes(), "image/jpeg"),
+            "original": ("original.png", original.getvalue(), "image/png"),
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert with_original.status_code == 200
     login(client)
+    works = client.get("/admin/works")
+    assert f"/admin/works/{original_id}/original" in works.text
+    downloaded = client.get(f"/admin/works/{original_id}/original")
+    assert downloaded.status_code == 200
+    assert downloaded.headers["content-type"].startswith("image/png")
+    assert "attachment" in downloaded.headers["content-disposition"]
     users = client.get("/admin/users")
     assert "cv-" in users.text
     assert "iPhone17,2" in users.text
-    failures = client.get("/admin/failures")
+    failures = client.get("/admin/diagnostics")
+    assert "诊断" in failures.text
     assert "缓存已发生变化" in failures.text
     assert "4064" in failures.text
+    assert "2026-11-19 12:00:00" in failures.text
+    assert "2026-11-19T04:00:00Z" not in failures.text
+    uploaded = client.post("/v1/reports", json={
+        "message": "无法写入缓存", "system": "27.2", "appVersion": "0.6.0", "log": "scan",
+    }, headers={"Authorization": f"Bearer {token}"})
+    assert uploaded.status_code == 200
+    assert "internal_name" not in uploaded.text
+    listed = client.get("/admin/diagnostics")
+    assert "无法写入缓存" in listed.text
+    report_id = uploaded.json()["id"]
+    detail = client.get(f"/admin/diagnostics/{report_id}")
+    assert "scan" in detail.text
 
 
 def test_empty_catalog(client: TestClient) -> None:
@@ -134,4 +168,40 @@ def test_seed_imports_builtin_wallpapers(tmp_path: Path, monkeypatch: pytest.Mon
     with TestClient(create_app(), follow_redirects=False) as client:
         again = client.get("/v1/catalog/builtin").json()["items"]
     assert len(again) == 1
+
+
+def test_shared_wallpapers_rank_by_likes(client: TestClient) -> None:
+    def register() -> dict[str, str]:
+        token = client.post("/v1/devices", json={"install_id": str(uuid.uuid4()), "device_machine": "iPhone17,2"}).json()["device_token"]
+        return {"Authorization": f"Bearer {token}"}
+
+    first = register()
+    second = register()
+    share_id = str(uuid.uuid4())
+    original = io.BytesIO()
+    Image.new("RGB", (40, 16), (20, 30, 40)).save(original, "PNG")
+    created = client.post(
+        "/v1/shares",
+        data={"id": share_id, "title": "海岸共享", "description": "夜景公路", "width": 40, "height": 16},
+        files={
+            "preview": ("preview.jpg", jpeg_bytes(), "image/jpeg"),
+            "original": ("original.png", original.getvalue(), "image/png"),
+        },
+        headers=first,
+    )
+    assert created.status_code == 200
+    assert "internal_name" not in created.text
+    listed = client.get("/v1/shares", headers=first).json()["items"]
+    assert listed[0]["title"] == "海岸共享"
+    assert listed[0]["description"] == "夜景公路"
+    assert listed[0]["likes"] == 0
+    liked = client.post(f"/v1/shares/{share_id}/like", headers=second)
+    assert liked.json() == {"likes": 1, "liked": True}
+    removed = client.post(f"/v1/shares/{share_id}/like", headers=second)
+    assert removed.json()["likes"] == 0
+    client.post(f"/v1/shares/{share_id}/like", headers=first)
+    assert client.get("/v1/shares").json()["items"][0]["likes"] == 1
+    assert "cv-" not in client.get("/v1/shares").text
+    login(client)
+    assert "海岸共享" in client.get("/admin/shares").text
 

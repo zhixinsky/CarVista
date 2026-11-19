@@ -1,8 +1,28 @@
 {% extends "base.html" %}
-{% block title %}故障 · CarVista{% endblock %}
-{% block page_title %}故障{% endblock %}
-{% block page_note %}按错误文案汇总扫描、应用和恢复失败。{% endblock %}
+{% block title %}诊断 · CarVista{% endblock %}
+{% block page_title %}诊断{% endblock %}
+{% block page_note %}用户在 App 里生成的诊断报告，以及扫描、应用和恢复失败。{% endblock %}
 {% block body %}
+<div class="cv-panel mb-3">
+  <div class="px-3 pt-3"><h2 class="h4 mb-0">诊断报告</h2></div>
+  <table class="cv-table">
+    <thead><tr><th>时间</th><th>用户</th><th>系统</th><th>App</th><th>摘要</th><th></th></tr></thead>
+    <tbody>
+      {% for item in reports %}
+      <tr>
+        <td class="text-secondary">{{ item.created_at | sh }}</td>
+        <td><a href="/admin/users/{{ item.device_id }}">{{ item.internal_name }}</a></td>
+        <td>{{ item.ios_version }}</td>
+        <td>{{ item.app_version }}</td>
+        <td>{{ item.summary }}</td>
+        <td><a href="/admin/diagnostics/{{ item.id }}">查看</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="text-secondary">还没有诊断报告。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 <div class="cv-panel mb-3">
   <div class="px-3 pt-3"><h2 class="h4 mb-0">按文案汇总</h2></div>
   <table class="cv-table">
@@ -13,7 +33,7 @@
         <td>{{ group.message }}</td>
         <td>{{ group.count }}</td>
         <td>{{ group.devices }}</td>
-        <td class="text-secondary">{{ group.last }}</td>
+        <td class="text-secondary">{{ group.last | sh }}</td>
       </tr>
       {% else %}
       <tr><td colspan="4" class="text-secondary">还没有失败记录。</td></tr>
@@ -29,7 +49,7 @@
       <tbody>
         {% for item in failures %}
         <tr>
-          <td class="text-secondary">{{ item.at }}</td>
+          <td class="text-secondary">{{ item.at | sh }}</td>
           <td><a href="/admin/users/{{ item.device_id }}">{{ item.internal_name }}</a></td>
           <td>{{ item.type }}</td>
           <td>{{ item.message }}</td>

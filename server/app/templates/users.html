@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}用户 · CarVista{% endblock %}
-{% block page_title %}用户{% endblock %}
+{% block title %}用户信息 · CarVista{% endblock %}
+{% block page_title %}用户信息{% endblock %}
 {% block page_note %}内部用户名只在这里显示，App 里看不到。{% endblock %}
 {% block body %}
 <div class="cv-panel">
@@ -13,7 +13,7 @@
         <td>{{ user.device_machine or user.device_model }}</td>
         <td>{{ user.ios_version }}</td>
         <td>{{ user.app_version }}</td>
-        <td class="text-secondary">{{ user.last_seen }}</td>
+        <td class="text-secondary">{{ user.last_seen | sh }}</td>
       </tr>
       {% else %}
       <tr><td colspan="5" class="text-secondary">还没有设备登记。</td></tr>
