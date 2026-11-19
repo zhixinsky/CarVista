@@ -100,15 +100,15 @@ struct ComposeWallpaperView: View {
                         VStack(spacing: 6) {
                             HStack(spacing: 6) {
                                 PhotosPicker(selection: $selection, matching: .images) {
-                                    Text("更换壁纸").lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity)
+                                    Text("更换壁纸").font(.system(size: 15, weight: .medium)).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity)
                                 }.buttonStyle(.borderedProminent).disabled(locked).accessibilityIdentifier("maker.select")
                                     .accessibilityLabel("更换壁纸")
                                 Button { adjusting = true } label: {
-                                    Text("裁剪调色").lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity)
+                                    Text("裁剪调色").font(.system(size: 15, weight: .medium)).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity)
                                 }.buttonStyle(.bordered).disabled(locked)
                                     .accessibilityIdentifier("maker.adjust")
                                 Button { prepareShare() } label: {
-                                    Text(shared ? "已共享" : "分享壁纸").lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity)
+                                    Text(shared ? "已共享" : "分享").font(.system(size: 15, weight: .medium)).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity)
                                 }.buttonStyle(.bordered).disabled(locked || shared)
                                     .accessibilityIdentifier("wallpaper.share")
                                 if model.photoDownloadUnlocked {
@@ -135,7 +135,7 @@ struct ComposeWallpaperView: View {
                                 }
                                 .font(.system(size: 15, weight: .medium))
                                 .frame(maxWidth: .infinity, minHeight: 36)
-                                .background(CanvasTheme.accent, in: RoundedRectangle(cornerRadius: 10))
+                                .background(CanvasTheme.accent, in: Capsule())
                                 .foregroundStyle(.white)
                                 .opacity(locked ? 0.5 : 1)
                             }.buttonStyle(.plain).disabled(locked)
