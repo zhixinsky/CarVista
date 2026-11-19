@@ -3,13 +3,15 @@ import SwiftUI
 import WebKit
 
 struct WallpaperRefreshButton: View {
+    var title = "重启 CarPlay"
+    var systemImage = "arrow.clockwise"
     @EnvironmentObject var model: WorkshopModel
     @State private var showing = false
     var body: some View {
         Button { showing = true } label: {
-            Label("重启 CarPlay", systemImage: "arrow.clockwise")
-        }.disabled(model.busy).accessibilityIdentifier("wallpaper.refresh")
-            .sheet(isPresented: $showing) { WallpaperRefreshView() }
+            Label(title, systemImage: systemImage)
+        }.disabled(model.busy).accessibilityIdentifier(title == "注销" ? "wallpaper.logout" : "wallpaper.refresh")
+            .sheet(isPresented: $showing) { WallpaperRefreshView(title: title) }
     }
 }
 
@@ -67,6 +69,7 @@ private struct RespringSurface: UIViewRepresentable {
 }
 
 private struct WallpaperRefreshView: View {
+    var title = "重启 CarPlay"
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var phase
     @EnvironmentObject var model: WorkshopModel
@@ -82,14 +85,14 @@ private struct WallpaperRefreshView: View {
                     ProgressView("正在尝试…")
                     Button("停止尝试") { controller.stop("已停止，未确认是否刷新。") }
                 } else {
-                    Button("重载界面，让壁纸生效") { controller.start() }
+                    Button(title == "注销" ? "注销" : "重载界面，让壁纸生效") { controller.start() }
                         .buttonStyle(.borderedProminent).disabled(model.busy)
                         .accessibilityIdentifier("respring.start")
                     Text("若无效果，请手动重启 iPhone 后重新连接 CarPlay。无需配置快捷指令。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-            }.padding(20).navigationTitle("重启 CarPlay").navigationBarTitleDisplayMode(.inline)
+            }.padding(20).navigationTitle(title).navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("完成") { dismiss() } }
                 .onChange(of: phase) { _, value in
                     if value != .active, controller.active {
