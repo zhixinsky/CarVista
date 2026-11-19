@@ -388,6 +388,22 @@ def test_folder_upload_creates_series(client: TestClient) -> None:
     assert beach[0]["title"] == "海"
     admin = client.get("/admin/assets?collection=" + parent)
     assert "选择文件夹" in admin.text and "海滩" in admin.text
+    assert "改名" in admin.text
+    beach_id = groups[0]["id"]
+    renamed = client.post("/admin/categories/" + beach_id, data={
+        "csrf": csrf,
+        "title": "碧海",
+        "sort_order": "1",
+        "hidden": "0",
+        "published": "1",
+        "return_collection": parent,
+    }, follow_redirects=False)
+    assert renamed.status_code == 303
+    assert "collection=" + parent in renamed.headers["location"]
+    groups = client.get(f"/v1/gallery/categories/{parent}/groups").json()["items"]
+    assert groups[0]["title"] == "碧海"
+    child_page = client.get("/admin/assets?collection=" + groups[0]["id"])
+    assert "系列名称" in child_page.text and "碧海" in child_page.text
     flat = client.post("/admin/assets/batch", data={
         "csrf": csrf, "collection": groups[1]["id"], "mode": "files", "paths": ["夜.jpg"],
     }, files=[("files", ("夜.jpg", jpeg_bytes(24, 12), "image/jpeg"))])

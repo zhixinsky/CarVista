@@ -237,7 +237,8 @@ def create_app() -> FastAPI:
     @app.post("/admin/categories/{category_id}")
     def edit_category(request: Request, category_id: str, title: str = Form(),
                       sort_order: int = Form(), hidden: str = Form("0"),
-                      published: str = Form("1"), csrf: str = Form()) -> RedirectResponse:
+                      published: str = Form("1"), csrf: str = Form(),
+                      return_collection: str = Form("")) -> RedirectResponse:
         require_admin(request)
         check_csrf(request, {"csrf": csrf})
         clean_title = clip(title, 60)
@@ -245,6 +246,11 @@ def create_app() -> FastAPI:
         if not clean_title or not 0 <= sort_order <= 1000000:
             raise HTTPException(400, "请填写名称和有效顺序")
         with connect() as conn:
+            existing = conn.execute(
+                "SELECT parent_id FROM gallery_categories WHERE id = ?", (category_id,),
+            ).fetchone()
+            if existing is None:
+                raise HTTPException(404)
             result = conn.execute(
                 """UPDATE gallery_categories
                    SET title = ?, sort_order = ?, hidden = ?, published = ? WHERE id = ?""",
@@ -252,6 +258,14 @@ def create_app() -> FastAPI:
             )
             if result.rowcount == 0:
                 raise HTTPException(404)
+            back = ""
+            if return_collection and conn.execute(
+                "SELECT 1 FROM gallery_categories WHERE id = ?", (return_collection,),
+            ).fetchone():
+                back = return_collection
+        if back:
+            note = "系列名称已更新" if existing["parent_id"] else "分类已更新"
+            return redirect_assets(back, note)
         return RedirectResponse("/admin/categories?msg=分类已更新", status_code=303)
 
     @app.get("/admin/categories/{category_id}/source", response_class=HTMLResponse)
@@ -513,11 +527,18 @@ def create_app() -> FastAPI:
                 (collection,),
             ).fetchall()
             groups = group_rows(conn, collection) if category and not category["parent_id"] else []
+            parent = None
+            if category and category["parent_id"]:
+                parent = conn.execute(
+                    "SELECT * FROM gallery_categories WHERE id = ?", (category["parent_id"],),
+                ).fetchone()
         can_folders = bool(category and not category["parent_id"] and category["kind"] in {"catalog", "series"})
+        category_row = dict(category) if category else None
+        parent_row = dict(parent) if parent else None
         return render(request, "assets.html", page(
             request, section=collection, collection=collection,
             title=category["title"] if category else COLLECTIONS["builtin"], assets=rows,
-            groups=groups, can_folders=can_folders,
+            groups=groups, can_folders=can_folders, category=category_row, parent=parent_row,
         ))
 
     @app.post("/admin/assets/batch")

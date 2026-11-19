@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} · CarVista{% endblock %}
 {% block page_title %}{{ title }}{% endblock %}
-{% block page_note %}切到「发布」后会出现在 App 里，切到「下架」后 App 不再显示。点图片可查看原图。{% endblock %}
+{% block page_note %}{% if parent %}属于「{{ parent.title }}」。{% endif %}切到「发布」后会出现在 App 里，切到「下架」后 App 不再显示。点图片可查看原图。{% if category and category.parent_id %} 系列名称会同步到 App。{% endif %}{% endblock %}
 {% block body %}
 <style>
   .batch-board { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; padding: 16px; margin-bottom: 14px; }
@@ -18,8 +18,26 @@
   .series-card div { padding: 12px 14px 14px; }
   .series-card strong { display: block; }
   .series-card span { color: #6b7787; font-size: 13px; }
+  .series-open { display: block; color: inherit; text-decoration: none; }
+  .series-foot { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 14px; align-items: center; }
+  .series-rename { margin-bottom: 16px; padding: 16px 18px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .series-rename label { margin: 0; color: #6b7787; font-size: 13px; white-space: nowrap; }
+  .series-rename input { flex: 1 1 200px; min-width: 160px; }
   #batch-status { grid-column: 1 / -1; margin: 0; color: #0b7a86; }
 </style>
+{% if category and category.parent_id %}
+<form class="cv-panel series-rename" method="post" action="/admin/categories/{{ category.id }}">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="sort_order" value="{{ category.sort_order }}">
+  <input type="hidden" name="hidden" value="{{ category.hidden }}">
+  <input type="hidden" name="published" value="{{ category.published }}">
+  <input type="hidden" name="return_collection" value="{{ category.id }}">
+  <label for="series-title">系列名称</label>
+  <input class="form-control" id="series-title" name="title" maxlength="60" value="{{ category.title }}" required>
+  <button class="btn btn-primary" type="submit">保存名称</button>
+  {% if parent %}<a class="btn btn-outline-secondary" href="/admin/assets?collection={{ parent.id }}">返回{{ parent.title }}</a>{% endif %}
+</form>
+{% endif %}
 <div class="cv-panel batch-board" id="batch-box" data-collection="{{ collection }}" data-csrf="{{ csrf }}" data-folders="{{ 1 if can_folders else 0 }}">
   {% if can_folders %}
   <div class="batch-drop" id="batch-drop">
@@ -39,13 +57,35 @@
 {% if groups %}
 <div class="series-grid">
   {% for group in groups %}
-  <a class="cv-panel series-card" href="/admin/assets?collection={{ group.id }}">
-    {% if group.cover %}<img src="/admin/assets/{{ group.cover }}/preview" alt="">{% endif %}
-    <div>
-      <strong>{{ group.title }}</strong>
-      <span>{{ group.count }} 张{% if not group.published %} · 已下架{% endif %}{% if group.hidden %} · 隐藏{% endif %}</span>
+  <article class="cv-panel series-card">
+    <a class="series-open" href="/admin/assets?collection={{ group.id }}">
+      {% if group.cover %}<img src="/admin/assets/{{ group.cover }}/preview" alt="">{% endif %}
+      <div>
+        <strong>{{ group.title }}</strong>
+        <span>{{ group.count }} 张{% if not group.published %} · 已下架{% endif %}{% if group.hidden %} · 隐藏{% endif %}</span>
+      </div>
+    </a>
+    <div class="series-foot">
+      <a class="cv-link" href="/admin/assets?collection={{ group.id }}">管理图片</a>
+      <button class="cv-link" type="button" onclick="document.getElementById('series-{{ group.id }}').showModal()">改名</button>
     </div>
-  </a>
+    <dialog class="cv-dialog" id="series-{{ group.id }}">
+      <form method="post" action="/admin/categories/{{ group.id }}">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="sort_order" value="{{ group.sort_order }}">
+        <input type="hidden" name="hidden" value="{{ group.hidden }}">
+        <input type="hidden" name="published" value="{{ group.published }}">
+        <input type="hidden" name="return_collection" value="{{ collection }}">
+        <h2>修改系列名称</h2>
+        <p class="text-secondary mb-3" style="margin:0 0 12px;font-size:13px;">名称会显示在 App 的系列列表里。</p>
+        <input class="form-control" name="title" maxlength="60" value="{{ group.title }}" required>
+        <div class="actions">
+          <button class="btn btn-outline-secondary" type="button" onclick="this.closest('dialog').close()">取消</button>
+          <button class="btn btn-primary" type="submit">保存</button>
+        </div>
+      </form>
+    </dialog>
+  </article>
   {% endfor %}
 </div>
 {% endif %}
