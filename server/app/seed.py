@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import hashlib
+import json
 import os
 import shutil
 import uuid
@@ -60,6 +61,16 @@ def seed_wallpapers() -> None:
         color, appearance = path.stem.removeprefix("Wallpaper").rsplit("-", 1)
         title = colors.get(color, color) + (" · 深色" if appearance == "Dark" else " · 浅色")
         import_file("stock", title, order, path, seed_key="stock/" + path.name)
+    test_gallery = root / "TestGallery"
+    manifest = test_gallery / "catalog.json"
+    if manifest.is_file():
+        for order, item in enumerate(json.loads(manifest.read_text(encoding="utf-8"))):
+            filename = item["file"]
+            if Path(filename).name != filename:
+                continue
+            path = test_gallery / filename
+            if path.is_file():
+                import_file("test", item["title"], order, path, seed_key="test/" + filename)
     with connect() as conn:
         buick_count = conn.execute("SELECT count(*) FROM assets WHERE collection = 'buick_gallery'").fetchone()[0]
     for index in range(9):

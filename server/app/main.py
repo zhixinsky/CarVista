@@ -805,7 +805,7 @@ def create_app() -> FastAPI:
             raise HTTPException(400, "共享信息不完整")
         if width < 1 or height < 1 or width > 20000 or height > 20000:
             raise HTTPException(400, "尺寸无效")
-        clean_title = clip(title, 60) or "共享壁纸"
+        clean_title = clip(title, 60) or "精选壁纸"
         clean_description = clip(description, 200)
         with connect() as conn:
             existing = conn.execute("SELECT device_id FROM shares WHERE id = ?", (share_id,)).fetchone()
@@ -841,7 +841,7 @@ def create_app() -> FastAPI:
         with connect() as conn:
             row = conn.execute("SELECT title, description, author, device_id FROM shares WHERE id = ?", (share_id,)).fetchone()
         if row is None:
-            raise HTTPException(404, "共享壁纸不存在")
+            raise HTTPException(404, "精选壁纸不存在")
         if row["device_id"] != device["id"]:
             raise HTTPException(403, "只能编辑自己共享的壁纸")
         return JSONResponse({"title": row["title"], "description": row["description"] or "", "author": row["author"] or ""})
@@ -855,7 +855,7 @@ def create_app() -> FastAPI:
         with connect() as conn:
             row = conn.execute("SELECT device_id FROM shares WHERE id = ?", (share_id,)).fetchone()
             if row is None:
-                raise HTTPException(404, "共享壁纸不存在")
+                raise HTTPException(404, "精选壁纸不存在")
             if row["device_id"] != device["id"]:
                 raise HTTPException(403, "只能编辑自己共享的壁纸")
             conn.execute("UPDATE shares SET title = ?, description = ?, author = ? WHERE id = ?",
@@ -934,7 +934,7 @@ def create_app() -> FastAPI:
         with connect() as conn:
             result = conn.execute("UPDATE shares SET published = ? WHERE id = ?", (int(published == "on"), share_id))
             if result.rowcount == 0:
-                raise HTTPException(404, "共享壁纸不存在")
+                raise HTTPException(404, "精选壁纸不存在")
         return RedirectResponse("/admin/shares?msg=发布状态已更新", status_code=303)
 
     @app.post("/admin/shares/{share_id}/edit")
@@ -950,11 +950,11 @@ def create_app() -> FastAPI:
         with connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             if conn.execute("SELECT 1 FROM shares WHERE id = ?", (share_id,)).fetchone() is None:
-                raise HTTPException(404, "共享壁纸不存在")
+                raise HTTPException(404, "精选壁纸不存在")
             count = conn.execute("SELECT count(*) FROM share_likes WHERE share_id = ?", (share_id,)).fetchone()[0]
             conn.execute("UPDATE shares SET title = ?, description = ?, likes_offset = ? WHERE id = ?",
                          (clean_title, clip(description, 200), likes - count, share_id))
-        return RedirectResponse("/admin/shares?msg=共享壁纸已更新", status_code=303)
+        return RedirectResponse("/admin/shares?msg=精选壁纸已更新", status_code=303)
 
     @app.post("/admin/shares/{share_id}/likes")
     def set_share_likes(request: Request, share_id: str, likes: int = Form(), csrf: str = Form()) -> RedirectResponse:
@@ -965,7 +965,7 @@ def create_app() -> FastAPI:
         with connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             if conn.execute("SELECT 1 FROM shares WHERE id = ?", (share_id,)).fetchone() is None:
-                raise HTTPException(404, "共享壁纸不存在")
+                raise HTTPException(404, "精选壁纸不存在")
             count = conn.execute("SELECT count(*) FROM share_likes WHERE share_id = ?", (share_id,)).fetchone()[0]
             conn.execute("UPDATE shares SET likes_offset = ? WHERE id = ?", (likes - count, share_id))
         return RedirectResponse("/admin/shares?msg=点赞数已更新", status_code=303)
@@ -980,7 +980,7 @@ def create_app() -> FastAPI:
         with connect() as conn:
             result = conn.execute("UPDATE shares SET title = ? WHERE id = ?", (clean_title, share_id))
             if result.rowcount == 0:
-                raise HTTPException(404, "共享壁纸不存在")
+                raise HTTPException(404, "精选壁纸不存在")
         return RedirectResponse("/admin/shares?msg=壁纸名称已更新", status_code=303)
 
     @app.post("/admin/shares/{share_id}/delete")

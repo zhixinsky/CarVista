@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}共享壁纸 · CarVista{% endblock %}
-{% block page_title %}共享壁纸{% endblock %}
+{% block title %}精选壁纸 · CarVista{% endblock %}
+{% block page_title %}精选壁纸{% endblock %}
 {% block page_note %}发布后会出现在 App 共享图库，下架后隐藏。点图片可查看原图。{% endblock %}
 {% block body %}
 <div class="row g-3">
@@ -30,7 +30,7 @@
           <div class="cv-card-links">
             <a class="cv-link" href="/admin/shares/{{ item.id }}/media/original?download=true">下载</a>
             <button class="cv-link" type="button" onclick="document.getElementById('edit-{{ item.id }}').showModal()">编辑</button>
-            <form method="post" action="/admin/shares/{{ item.id }}/delete" onsubmit="return confirm('删除这张共享壁纸？App 将不再显示它。')">
+            <form method="post" action="/admin/shares/{{ item.id }}/delete" onsubmit="return confirm('删除这张精选壁纸？App 将不再显示它。')">
               <input type="hidden" name="csrf" value="{{ csrf }}">
               <button class="cv-link-danger" type="submit">删除</button>
             </form>
@@ -39,7 +39,7 @@
         <dialog class="cv-dialog" id="edit-{{ item.id }}">
           <form method="post" action="/admin/shares/{{ item.id }}/edit">
             <input type="hidden" name="csrf" value="{{ csrf }}">
-            <h2>编辑共享壁纸</h2>
+            <h2>编辑精选壁纸</h2>
             <img src="/admin/shares/{{ item.id }}/media/preview" alt="">
             <label class="form-label mt-3" for="title-{{ item.id }}">名称</label>
             <input id="title-{{ item.id }}" class="form-control" name="title" maxlength="60" value="{{ item.title }}" required>
@@ -57,7 +57,7 @@
     </article>
   </div>
   {% else %}
-  <div class="col-12"><div class="cv-panel p-4 text-secondary">还没有共享壁纸。</div></div>
+  <div class="col-12"><div class="cv-panel p-4 text-secondary">还没有精选壁纸。</div></div>
   {% endfor %}
 </div>
 {% endblock %}

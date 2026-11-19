@@ -262,7 +262,7 @@ def test_shared_wallpapers_rank_by_likes(client: TestClient) -> None:
 def test_dynamic_gallery_categories(client: TestClient) -> None:
     initial = client.get('/v1/gallery/categories').json()['items']
     assert [item['title'] for item in initial] == [
-        '默认壁纸', '共享壁纸', '必应壁纸', '主题搜图', '别克车机壁纸', '测试'
+        '默认壁纸', '精选壁纸', '必应壁纸', '主题搜图', '别克车机壁纸', '测试'
     ]
     assert initial[-1]['hidden'] == 1
     assert client.post('/admin/categories', data={'title': '新分类', 'csrf': 'bad'}).status_code == 303
@@ -315,3 +315,30 @@ def test_stock_wallpapers_use_own_catalog(client: TestClient, tmp_path: Path, mo
     client.post('/admin/assets/' + item['id'] + '/delete', data={'csrf': csrf})
     seed_wallpapers()
     assert client.get('/v1/catalog/stock').json()['items'] == []
+
+def test_test_wallpapers_are_hosted_by_backend(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    root = tmp_path / 'test-seed'
+    folder = root / 'TestGallery'
+    folder.mkdir(parents=True)
+    (folder / '01.jpg').write_bytes(jpeg_bytes())
+    (folder / 'catalog.json').write_text(json.dumps([
+        {'id': '01', 'title': '测试海岸', 'file': '01.jpg', 'width': 32, 'height': 16}
+    ]), encoding='utf-8')
+    monkeypatch.setenv('CARVISTA_SEED', str(root))
+    from app.seed import seed_wallpapers
+    seed_wallpapers()
+    seed_wallpapers()
+    items = client.get('/v1/catalog/test').json()['items']
+    assert len(items) == 1 and items[0]['title'] == '测试海岸'
+    assert client.get(items[0]['original_url']).status_code == 200
+    login(client)
+    page = client.get('/admin/assets?collection=test')
+    assert '测试海岸' in page.text
+    csrf = page.text.split('name="csrf" value="', 1)[1].split('"', 1)[0]
+    client.post('/admin/assets/' + items[0]['id'], data={'csrf': csrf, 'title': '后台修改', 'published': 'on'})
+    seed_wallpapers()
+    assert client.get('/v1/catalog/test').json()['items'][0]['title'] == '后台修改'
+    client.post('/admin/assets/' + items[0]['id'] + '/delete', data={'csrf': csrf})
+    seed_wallpapers()
+    assert client.get('/v1/catalog/test').json()['items'] == []
