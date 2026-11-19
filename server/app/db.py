@@ -130,16 +130,23 @@ def init_db() -> None:
             conn.execute("ALTER TABLE shares ADD COLUMN published INTEGER NOT NULL DEFAULT 1")
         conn.execute("""CREATE TABLE IF NOT EXISTS gallery_categories (
             id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL,
-            sort_order INTEGER NOT NULL, hidden INTEGER NOT NULL DEFAULT 0
+            sort_order INTEGER NOT NULL, hidden INTEGER NOT NULL DEFAULT 0,
+            published INTEGER NOT NULL DEFAULT 1
         )""")
+        category_columns = {row[1] for row in conn.execute("PRAGMA table_info(gallery_categories)")}
+        if "published" not in category_columns:
+            conn.execute("ALTER TABLE gallery_categories ADD COLUMN published INTEGER NOT NULL DEFAULT 1")
         conn.execute("CREATE TABLE IF NOT EXISTS seeded_files (key TEXT PRIMARY KEY)")
         for order, (key, title, kind, hidden) in enumerate([
             ("stock", "默认壁纸", "stock", 0), ("share", "精选壁纸", "share", 0),
             ("bing", "必应壁纸", "bing", 0), ("commons", "主题搜图", "commons", 0),
             ("buick_gallery", "别克车机壁纸", "buick", 0), ("test", "测试", "test", 1),
         ]):
-            conn.execute("INSERT OR IGNORE INTO gallery_categories VALUES (?, ?, ?, ?, ?)",
-                         (key, title, kind, order, hidden))
+            conn.execute(
+                """INSERT OR IGNORE INTO gallery_categories
+                   (id, title, kind, sort_order, hidden, published) VALUES (?, ?, ?, ?, ?, 1)""",
+                (key, title, kind, order, hidden),
+            )
         conn.execute("UPDATE gallery_categories SET title = '精选壁纸' WHERE id = 'share' AND title = '共享壁纸'")
 
 

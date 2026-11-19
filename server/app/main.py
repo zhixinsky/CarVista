@@ -179,7 +179,10 @@ def create_app() -> FastAPI:
     @app.get("/v1/gallery/categories")
     def gallery_categories() -> JSONResponse:
         with connect() as conn:
-            rows = conn.execute("SELECT * FROM gallery_categories ORDER BY sort_order, id").fetchall()
+            rows = conn.execute(
+                """SELECT id, title, kind, hidden, published FROM gallery_categories
+                   WHERE published = 1 ORDER BY sort_order, id"""
+            ).fetchall()
         return JSONResponse({"items": [dict(row) for row in rows]}, headers={"Cache-Control": "no-store"})
 
     @app.get("/admin/categories", response_class=HTMLResponse)
@@ -188,30 +191,41 @@ def create_app() -> FastAPI:
         return render(request, "categories.html", page(request, section="categories"))
 
     @app.post("/admin/categories")
-    def add_category(request: Request, title: str = Form(), csrf: str = Form()) -> RedirectResponse:
+    def add_category(request: Request, title: str = Form(), hidden: str = Form("0"),
+                     published: str = Form("1"), csrf: str = Form()) -> RedirectResponse:
         require_admin(request)
         check_csrf(request, {"csrf": csrf})
         clean_title = clip(title, 60)
+        hidden_flag, published_flag = category_flags(hidden, published)
         if not clean_title:
             raise HTTPException(400, "请输入分类名称")
         key = "custom-" + uuid.uuid4().hex
         with connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             order = conn.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM gallery_categories").fetchone()[0]
-            conn.execute("INSERT INTO gallery_categories VALUES (?, ?, 'catalog', ?, 0)", (key, clean_title, order))
+            conn.execute(
+                """INSERT INTO gallery_categories
+                   (id, title, kind, sort_order, hidden, published) VALUES (?, ?, 'catalog', ?, ?, ?)""",
+                (key, clean_title, order, hidden_flag, published_flag),
+            )
         return redirect_assets(key, "分类已新增，可上传壁纸")
 
     @app.post("/admin/categories/{category_id}")
     def edit_category(request: Request, category_id: str, title: str = Form(),
-                      sort_order: int = Form(), csrf: str = Form()) -> RedirectResponse:
+                      sort_order: int = Form(), hidden: str = Form("0"),
+                      published: str = Form("1"), csrf: str = Form()) -> RedirectResponse:
         require_admin(request)
         check_csrf(request, {"csrf": csrf})
         clean_title = clip(title, 60)
+        hidden_flag, published_flag = category_flags(hidden, published)
         if not clean_title or not 0 <= sort_order <= 1000000:
             raise HTTPException(400, "请填写名称和有效顺序")
         with connect() as conn:
-            result = conn.execute("UPDATE gallery_categories SET title = ?, sort_order = ? WHERE id = ?",
-                                  (clean_title, sort_order, category_id))
+            result = conn.execute(
+                """UPDATE gallery_categories
+                   SET title = ?, sort_order = ?, hidden = ?, published = ? WHERE id = ?""",
+                (clean_title, sort_order, hidden_flag, published_flag, category_id),
+            )
             if result.rowcount == 0:
                 raise HTTPException(404)
         return RedirectResponse("/admin/categories?msg=分类已更新", status_code=303)
@@ -230,7 +244,9 @@ def create_app() -> FastAPI:
         stored = API_COLLECTIONS.get(collection, collection)
         with connect() as conn:
             if stored != "builtin" and conn.execute(
-                "SELECT 1 FROM gallery_categories WHERE id = ? AND kind IN ('catalog', 'buick', 'test', 'stock')", (stored,)
+                """SELECT 1 FROM gallery_categories
+                   WHERE id = ? AND published = 1 AND kind IN ('catalog', 'buick', 'test', 'stock')""",
+                (stored,),
             ).fetchone() is None:
                 raise HTTPException(404)
             rows = conn.execute(
@@ -436,7 +452,10 @@ def create_app() -> FastAPI:
         day_start, day_end = shanghai_today()
         with connect() as conn:
             stats = {
-                "devices": conn.execute("SELECT count(*) FROM devices WHERE first_seen >= ? AND first_seen < ?", (day_start, day_end)).fetchone()[0],
+                "devices": conn.execute(
+                    "SELECT count(*) FROM devices WHERE install_id != ? AND first_seen >= ? AND first_seen < ?",
+                    (LIBRARY_INSTALL, day_start, day_end),
+                ).fetchone()[0],
                 "works": conn.execute("SELECT count(*) FROM works WHERE created_at >= ? AND created_at < ?", (day_start, day_end)).fetchone()[0],
                 "failures": conn.execute(
                     "SELECT count(*) FROM events WHERE ok = 0 AND at >= ? AND at < ? AND type IN ('scan_result','apply_result','restore_result')",
@@ -637,11 +656,25 @@ def create_app() -> FastAPI:
             raise HTTPException(404)
         return FileResponse(path, media_type="image/jpeg")
 
+    @app.get("/admin/assets/{asset_id}/original")
+    def admin_asset_original(request: Request, asset_id: str) -> FileResponse:
+        require_admin(request)
+        with connect() as conn:
+            row = conn.execute("SELECT original_path FROM assets WHERE id = ?", (asset_id,)).fetchone()
+        path = images.safe_file(data_dir(), row["original_path"] if row else None)
+        if path is None:
+            raise HTTPException(404)
+        media_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+        return FileResponse(path, media_type=media_type)
+
     @app.get("/admin/users", response_class=HTMLResponse)
     def users(request: Request) -> HTMLResponse:
         require_admin(request)
         with connect() as conn:
-            rows = conn.execute("SELECT * FROM devices ORDER BY last_seen DESC LIMIT 200").fetchall()
+            rows = conn.execute(
+                "SELECT * FROM devices WHERE install_id != ? ORDER BY last_seen DESC LIMIT 200",
+                (LIBRARY_INSTALL,),
+            ).fetchall()
         return render(request, "users.html", page(request, section="users", users=rows))
 
     @app.get("/admin/users/{device_id}", response_class=HTMLResponse)
@@ -683,7 +716,7 @@ def create_app() -> FastAPI:
         return FileResponse(path, media_type="image/jpeg")
 
     @app.get("/admin/works/{work_id}/original")
-    def work_original(request: Request, work_id: str) -> FileResponse:
+    def work_original(request: Request, work_id: str, inline: int = 0) -> FileResponse:
         require_admin(request)
         with connect() as conn:
             row = conn.execute("SELECT original_path, width, height FROM works WHERE id = ?", (work_id,)).fetchone()
@@ -691,6 +724,8 @@ def create_app() -> FastAPI:
         if path is None:
             raise HTTPException(404)
         media_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+        if inline:
+            return FileResponse(path, media_type=media_type)
         name = f"carvista-{row['width']}x{row['height']}{path.suffix.lower()}"
         return FileResponse(path, media_type=media_type, filename=name)
 
@@ -1061,6 +1096,12 @@ def new_internal_name(conn) -> str:
 
 def clip(value, limit: int) -> str:
     return str(value or "").strip()[:limit]
+
+
+def category_flags(hidden: str, published: str) -> tuple[int, int]:
+    if hidden not in {"0", "1"} or published not in {"0", "1"}:
+        raise HTTPException(400, "请选择显示和上下架状态")
+    return int(hidden), int(published)
 
 
 def client_ip(request: Request) -> str:

@@ -6,6 +6,7 @@ struct GalleryCategory: Codable, Identifiable, Hashable {
     let title: String
     let kind: String
     let hidden: Int
+    let published: Int
     var rawValue: String { title }
     var key: String { id == "buick_gallery" ? "buick" : id }
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
@@ -16,8 +17,36 @@ struct GalleryCategory: Codable, Identifiable, Hashable {
     static let bing = Self(id: "bing", title: "必应壁纸", kind: "bing", hidden: 0)
     static let commons = Self(id: "commons", title: "主题搜图", kind: "commons", hidden: 0)
     static let buick = Self(id: "buick_gallery", title: "别克车机壁纸", kind: "buick", hidden: 0)
-    static let test = Self(id: "test", title: "测试", kind: "test", hidden: 1)
+    static let test = Self(id: "test", title: "测试", kind: "test", hidden: 1, published: 1)
     static let allCases: [Self] = [.stock, .share, .bing, .commons, .buick, .test]
+
+    init(id: String, title: String, kind: String, hidden: Int, published: Int = 1) {
+        self.id = id
+        self.title = title
+        self.kind = kind
+        self.hidden = hidden
+        self.published = published
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, title, kind, hidden, published }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        kind = try container.decode(String.self, forKey: .kind)
+        hidden = try container.decodeIfPresent(Int.self, forKey: .hidden) ?? 0
+        published = try container.decodeIfPresent(Int.self, forKey: .published) ?? 1
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(hidden, forKey: .hidden)
+        try container.encode(published, forKey: .published)
+    }
 
     private struct Feed: Decodable { let items: [GalleryCategory] }
     private struct AssetFeed: Decodable { let items: [RemoteAsset] }
@@ -32,7 +61,7 @@ struct GalleryCategory: Codable, Identifiable, Hashable {
     }
     static var cached: [Self] {
         guard let data = UserDefaults.standard.data(forKey: "CarVistaGalleryCategories"),
-              let items = try? JSONDecoder().decode([Self].self, from: data), !items.isEmpty else { return allCases }
+              let items = try? JSONDecoder().decode([Self].self, from: data) else { return allCases }
         return items
     }
 
@@ -44,8 +73,7 @@ struct GalleryCategory: Codable, Identifiable, Hashable {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
             let items = try JSONDecoder().decode(Feed.self, from: data).items
-            guard !items.isEmpty, Set(items.map(\.id)).count == items.count,
-                  items.contains(where: { $0.id == "stock" }) else { return nil }
+            guard Set(items.map(\.id)).count == items.count else { return nil }
             UserDefaults.standard.set(try JSONEncoder().encode(items), forKey: "CarVistaGalleryCategories")
             return items
         } catch { return nil }
@@ -97,7 +125,14 @@ struct ServerWallpaperGalleryView: View {
                     .frame(maxWidth: .infinity)
                     .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
-                Text(item.title).font(.subheadline).lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(item.title).font(.subheadline).lineLimit(1)
+                    Spacer(minLength: 4)
+                    if let remote = item.remote, remote.width > 0, remote.height > 0 {
+                        Text("\(remote.width) × \(remote.height)")
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

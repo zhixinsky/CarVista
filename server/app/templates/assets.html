@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} · CarVista{% endblock %}
 {% block page_title %}{{ title }}{% endblock %}
-{% block page_note %}切到「发布」后会出现在 App 里，切到「下载」后 App 不再显示。{% endblock %}
+{% block page_note %}切到「发布」后会出现在 App 里，切到「下架」后 App 不再显示。点图片可查看原图。{% endblock %}
 {% block body %}
 <div class="cv-panel mb-3">
   <form class="row g-3 align-items-end p-3" method="post" action="/admin/assets" enctype="multipart/form-data">
@@ -28,7 +28,9 @@
   {% for asset in assets %}
   <div class="col-md-6 col-xl-4">
     <article class="cv-panel media-card">
-      <img class="preview" src="/admin/assets/{{ asset.id }}/preview" alt="{{ asset.title }}">
+      <button class="cv-zoom" type="button" data-original="/admin/assets/{{ asset.id }}/original" onclick="const box=document.getElementById('view-{{ asset.id }}'); const pic=box.querySelector('img'); if(!pic.getAttribute('src')) pic.src=this.dataset.original; box.showModal()">
+        <img class="preview" src="/admin/assets/{{ asset.id }}/preview" alt="{{ asset.title }}">
+      </button>
       <div class="pad">
         <div class="cv-card-name">{{ asset.title }}</div>
         <div class="cv-card-size">{{ asset.width }} × {{ asset.height }}</div>
@@ -37,7 +39,7 @@
             <input type="hidden" name="csrf" value="{{ csrf }}">
             <input type="hidden" name="title" value="{{ asset.title }}">
             <button class="{% if asset.published %}on-live{% endif %}" name="published" value="on" type="submit">发布</button>
-            <button class="{% if not asset.published %}on-off{% endif %}" name="published" value="" type="submit">下载</button>
+            <button class="{% if not asset.published %}on-off{% endif %}" name="published" value="" type="submit">下架</button>
           </form>
           <div class="cv-card-links">
             <button class="cv-link" type="button" onclick="document.getElementById('edit-{{ asset.id }}').showModal()">编辑</button>
@@ -48,6 +50,10 @@
           </div>
         </div>
       </div>
+      <dialog class="cv-lightbox" id="view-{{ asset.id }}">
+        <form method="dialog"><button class="cv-lightbox-close" type="submit">关闭</button></form>
+        <img alt="{{ asset.title }}">
+      </dialog>
       <dialog class="cv-dialog" id="edit-{{ asset.id }}">
         <form method="post" action="/admin/assets/{{ asset.id }}/edit" enctype="multipart/form-data">
           <input type="hidden" name="csrf" value="{{ csrf }}">

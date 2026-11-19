@@ -289,6 +289,24 @@ def test_dynamic_gallery_categories(client: TestClient) -> None:
     init_db()
     categories = client.get('/v1/gallery/categories').json()['items']
     assert next(item for item in categories if item['id'] == custom['id'])['title'] == '风景精选'
+    assert all(item['published'] == 1 for item in categories)
+    secret = client.post('/admin/categories', data={'title': '内部图', 'csrf': csrf, 'hidden': '1', 'published': '1'})
+    assert secret.status_code == 303
+    hidden_item = next(item for item in client.get('/v1/gallery/categories').json()['items'] if item['title'] == '内部图')
+    assert hidden_item['hidden'] == 1 and hidden_item['published'] == 1
+    parked = client.post('/admin/categories', data={'title': '暂存分类', 'csrf': csrf, 'hidden': '0', 'published': '0'})
+    assert parked.status_code == 303
+    parked_id = parked.headers['location'].split('collection=', 1)[1].split('&', 1)[0]
+    visible = client.get('/v1/gallery/categories').json()['items']
+    assert all(item['id'] != parked_id for item in visible)
+    assert client.get('/v1/catalog/' + parked_id).status_code == 404
+    admin_page = client.get('/admin/categories')
+    assert '暂存分类' in admin_page.text and '五连击后显示' in admin_page.text and '已下架' in admin_page.text
+    assert client.post('/admin/categories/' + custom['id'], data={
+        'csrf': csrf, 'title': '风景精选', 'sort_order': 1, 'hidden': '0', 'published': '0'
+    }).status_code == 303
+    assert all(item['id'] != custom['id'] for item in client.get('/v1/gallery/categories').json()['items'])
+    assert client.get('/v1/catalog/' + custom['id']).status_code == 404
     assert client.get('/v1/catalog/not-a-category').status_code == 404
     assert client.get('/admin/categories/stock/source').status_code == 200
 

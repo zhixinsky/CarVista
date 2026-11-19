@@ -26,7 +26,14 @@ struct BuickWallpaperGalleryView: View {
                                     .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
                                     .accessibilityHidden(true)
-                                Text(wallpaper.title).font(.subheadline)
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    Text(wallpaper.title).font(.subheadline).lineLimit(1)
+                                    Spacer(minLength: 4)
+                                    if let remote = wallpaper.remote, remote.width > 0, remote.height > 0 {
+                                        Text("\(remote.width) × \(remote.height)")
+                                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                }
                             }.frame(maxWidth: .infinity, alignment: .leading)
                         }.buttonStyle(.plain)
                     }

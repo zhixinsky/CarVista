@@ -8,6 +8,15 @@ private struct BingWallpaper: Decodable, Identifiable {
     let copyright: String?
     var id: String { urlbase ?? url }
     var name: String { title.flatMap { $0.isEmpty ? nil : $0 } ?? "Bing 每日壁纸" }
+    /// The gallery imports the UHD file. Current Bing UHD images are 3840×2160;
+    /// older entries fall back to the size written in the image URL.
+    var resolutionLabel: String? {
+        if let urlbase, !urlbase.isEmpty { return "3840 × 2160" }
+        guard let match = url.range(of: #"(\d{3,5})x(\d{3,5})"#, options: .regularExpression) else { return nil }
+        let parts = url[match].split(separator: "x")
+        guard parts.count == 2 else { return nil }
+        return "\(parts[0]) × \(parts[1])"
+    }
 
     func imageURL(size: String? = nil) -> URL? {
         let path = size.flatMap { size in urlbase.map { "\($0)_\(size).jpg" } } ?? url
@@ -76,10 +85,38 @@ struct WallpaperGalleryView: View {
     @State private var galleryVisible = false
     @EnvironmentObject private var model: WorkshopModel
     private var visibleSources: [Source] {
-        categories.filter { $0.hidden == 0 || model.photoDownloadUnlocked }
+        categories.filter { $0.published != 0 && ($0.hidden == 0 || model.photoDownloadUnlocked) }
     }
 
     var body: some View {
+        Group {
+            if visibleSources.isEmpty {
+                ContentUnavailableView("暂无分类", systemImage: "rectangle.stack")
+            } else {
+                galleryPages
+            }
+        }
+        .navigationTitle("图库")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .onAppear {
+            galleryVisible = true
+            if !visibleSources.contains(source) { source = visibleSources.first ?? .stock }
+        }
+        .onDisappear { galleryVisible = false }
+        .task(id: galleryVisible && scenePhase == .active) {
+            guard galleryVisible, scenePhase == .active else { return }
+            while !Task.isCancelled {
+                await refreshCategories()
+                do { try await Task.sleep(for: .seconds(10)) } catch { break }
+            }
+        }
+        .onChange(of: model.photoDownloadUnlocked) { _, _ in
+            if !visibleSources.contains(source) { source = visibleSources.first ?? .stock }
+        }
+    }
+
+    private var galleryPages: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -116,21 +153,6 @@ struct WallpaperGalleryView: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationTitle("图库")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
-        .onAppear { galleryVisible = true }
-        .onDisappear { galleryVisible = false }
-        .task(id: galleryVisible && scenePhase == .active) {
-            guard galleryVisible, scenePhase == .active else { return }
-            while !Task.isCancelled {
-                await refreshCategories()
-                do { try await Task.sleep(for: .seconds(10)) } catch { break }
-            }
-        }
-        .onChange(of: model.photoDownloadUnlocked) { _, _ in
-            if !visibleSources.contains(source) { source = .stock }
-        }
     }
 
     @ViewBuilder
@@ -149,7 +171,7 @@ struct WallpaperGalleryView: View {
     private func refreshCategories() async {
         guard let remote = await Source.fetch(), !Task.isCancelled else { return }
         categories = remote
-        source = visibleSources.first(where: { $0 == source }) ?? .stock
+        source = visibleSources.first(where: { $0 == source }) ?? visibleSources.first ?? .stock
     }
 }
 
@@ -182,6 +204,9 @@ private struct BingWallpaperGalleryView: View {
                                     .aspectRatio(16 / 9, contentMode: .fit)
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                                 Text(item.name).font(.subheadline).lineLimit(2)
+                                if let resolution = item.resolutionLabel {
+                                    Text(resolution).font(.caption).foregroundStyle(.secondary)
+                                }
                             }.frame(maxWidth: .infinity, alignment: .leading)
                         }.buttonStyle(.plain)
                     }
@@ -299,11 +324,4 @@ struct GalleryImage: View {
                 case .failure:
                     Label("图片加载失败", systemImage: "photo").font(.caption).foregroundStyle(.secondary)
                 case .empty:
-                    if url == nil { Label("暂无预览", systemImage: "photo").font(.caption).foregroundStyle(.secondary) }
-                    else { ProgressView() }
-                @unknown default: EmptyView()
-                }
-            }
-        }.clipped()
-    }
-}
+                    if url == nil { Label("暂无预览", systemImage:
