@@ -126,6 +126,20 @@ def init_db() -> None:
             conn.execute("ALTER TABLE shares ADD COLUMN author TEXT NOT NULL DEFAULT ''")
         if share_columns and "likes_offset" not in share_columns:
             conn.execute("ALTER TABLE shares ADD COLUMN likes_offset INTEGER NOT NULL DEFAULT 0")
+        if share_columns and "published" not in share_columns:
+            conn.execute("ALTER TABLE shares ADD COLUMN published INTEGER NOT NULL DEFAULT 1")
+        conn.execute("""CREATE TABLE IF NOT EXISTS gallery_categories (
+            id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL,
+            sort_order INTEGER NOT NULL, hidden INTEGER NOT NULL DEFAULT 0
+        )""")
+        conn.execute("CREATE TABLE IF NOT EXISTS seeded_files (key TEXT PRIMARY KEY)")
+        for order, (key, title, kind, hidden) in enumerate([
+            ("stock", "默认壁纸", "stock", 0), ("share", "共享壁纸", "share", 0),
+            ("bing", "必应壁纸", "bing", 0), ("commons", "主题搜图", "commons", 0),
+            ("buick_gallery", "别克车机壁纸", "buick", 0), ("test", "测试", "test", 1),
+        ]):
+            conn.execute("INSERT OR IGNORE INTO gallery_categories VALUES (?, ?, ?, ?, ?)",
+                         (key, title, kind, order, hidden))
 
 
 def prune(days: int = 180) -> None:
@@ -148,11 +162,20 @@ def prune(days: int = 180) -> None:
             except OSError:
                 pass
         conn.execute("DELETE FROM reports WHERE created_at < ?", (cutoff,))
-        old_shares = conn.execute("SELECT preview_path, original_path FROM shares WHERE created_at < ?", (cutoff,)).fetchall()
+        old_shares = conn.execute(
+            """SELECT preview_path, original_path FROM shares
+               WHERE created_at < ?
+                 AND device_id NOT IN (SELECT id FROM devices WHERE install_id = ?)""",
+            (cutoff, LIBRARY_INSTALL),
+        ).fetchall()
         for row in old_shares:
             for column in ("preview_path", "original_path"):
                 try:
                     Path(row[column]).unlink(missing_ok=True)
                 except OSError:
                     pass
-        conn.execute("DELETE FROM shares WHERE created_at < ?", (cutoff,))
+        conn.execute(
+            """DELETE FROM shares WHERE created_at < ?
+               AND device_id NOT IN (SELECT id FROM devices WHERE install_id = ?)""",
+            (cutoff, LIBRARY_INSTALL),
+        )

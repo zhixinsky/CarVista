@@ -163,10 +163,12 @@ def test_seed_imports_builtin_wallpapers(tmp_path: Path, monkeypatch: pytest.Mon
     with TestClient(create_app(), follow_redirects=False) as client:
         builtin = client.get("/v1/catalog/builtin").json()["items"]
         buick = client.get("/v1/catalog/buick").json()["items"]
-    assert [item["title"] for item in builtin] == ["壁纸 1"]
+        shares = client.get("/v1/shares").json()["items"]
+    assert builtin == []
     assert [item["title"] for item in buick] == ["别克壁纸 1"]
+    assert [item["title"] for item in shares] == ["壁纸 1"]
     with TestClient(create_app(), follow_redirects=False) as client:
-        again = client.get("/v1/catalog/builtin").json()["items"]
+        again = client.get("/v1/shares").json()["items"]
     assert len(again) == 1
 
 
@@ -236,4 +238,80 @@ def test_shared_wallpapers_rank_by_likes(client: TestClient) -> None:
     assert client.post(title_url, data={"csrf": csrf, "title": "后台新名称"}).status_code == 303
     assert client.get("/v1/shares").json()["items"][0]["title"] == "后台新名称"
     assert client.get(metadata_url, headers=first).json()["title"] == "后台新名称"
+    edit_url = f"/admin/shares/{share_id}/edit"
+    assert client.post(edit_url, data={"csrf": "invalid", "title": "修改", "likes": 8}).status_code == 403
+    assert client.post(edit_url, data={"csrf": csrf, "title": "修改", "likes": -1}).status_code == 400
+    assert client.post(edit_url, data={"csrf": csrf, "title": "统一编辑", "description": "后台描述", "likes": 8}).status_code == 303
+    item = client.get("/v1/shares").json()["items"][0]
+    assert (item["title"], item["description"], item["likes"]) == ("统一编辑", "后台描述", 8)
+    publish_url = f"/admin/shares/{share_id}/publish"
+    assert client.post(publish_url, data={"csrf": "invalid"}).status_code == 403
+    assert client.post(publish_url, data={"csrf": csrf}).status_code == 303
+    assert client.get("/v1/shares").json()["items"] == []
+    assert client.get(f"/v1/shares/{share_id}/original").status_code == 404
+    assert client.post(f"/v1/shares/{share_id}/like", headers=second).status_code == 404
+    download = client.get(f"/admin/shares/{share_id}/media/original?download=true")
+    assert download.status_code == 200
+    assert "attachment" in download.headers["content-disposition"]
+    assert client.get(f"/admin/shares/{share_id}/media/preview").status_code == 200
+    assert client.post(publish_url, data={"csrf": csrf, "published": "on"}).status_code == 303
+    assert client.get("/v1/shares").json()["items"][0]["likes"] == 8
 
+
+
+def test_dynamic_gallery_categories(client: TestClient) -> None:
+    initial = client.get('/v1/gallery/categories').json()['items']
+    assert [item['title'] for item in initial] == [
+        '默认壁纸', '共享壁纸', '必应壁纸', '主题搜图', '别克车机壁纸', '测试'
+    ]
+    assert initial[-1]['hidden'] == 1
+    assert client.post('/admin/categories', data={'title': '新分类', 'csrf': 'bad'}).status_code == 303
+    login(client)
+    page = client.get('/admin/categories')
+    csrf = page.text.split('name="csrf" value="', 1)[1].split('"', 1)[0]
+    assert client.post('/admin/categories', data={'title': '新分类', 'csrf': 'bad'}).status_code == 403
+    added = client.post('/admin/categories', data={'title': '风景壁纸', 'csrf': csrf})
+    assert added.status_code == 303
+    categories = client.get('/v1/gallery/categories').json()['items']
+    custom = categories[-1]
+    assert custom['title'] == '风景壁纸' and custom['kind'] == 'catalog'
+    assert '风景壁纸' in client.get('/admin/categories').text
+    uploaded = client.post('/admin/assets', data={
+        'csrf': csrf, 'collection': custom['id'], 'title': '山景', 'published': 'on'
+    }, files={'file': ('landscape.jpg', jpeg_bytes(), 'image/jpeg')})
+    assert uploaded.status_code == 303
+    assert client.get('/v1/catalog/' + custom['id']).json()['items'][0]['title'] == '山景'
+    edited = client.post('/admin/categories/' + custom['id'], data={
+        'csrf': csrf, 'title': '风景精选', 'sort_order': 1
+    })
+    assert edited.status_code == 303
+    from app.db import init_db
+    init_db()
+    categories = client.get('/v1/gallery/categories').json()['items']
+    assert next(item for item in categories if item['id'] == custom['id'])['title'] == '风景精选'
+    assert client.get('/v1/catalog/not-a-category').status_code == 404
+    assert client.get('/admin/categories/stock/source').status_code == 200
+
+def test_stock_wallpapers_use_own_catalog(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / 'seed'
+    folder = root / 'Stock'
+    folder.mkdir(parents=True)
+    original = jpeg_bytes()
+    (folder / 'WallpaperBlue-Dark.jpg').write_bytes(original)
+    monkeypatch.setenv('CARVISTA_SEED', str(root))
+    from app.seed import seed_wallpapers
+    seed_wallpapers()
+    item = client.get('/v1/catalog/stock').json()['items'][0]
+    assert item['title'] == '蓝色 · 深色'
+    assert '/v1/media/' in item['original_url']
+    assert client.get(item['original_url']).content == original
+    login(client)
+    page = client.get('/admin/assets?collection=stock')
+    assert page.status_code == 200 and '蓝色 · 深色' in page.text
+    csrf = page.text.split('name="csrf" value="', 1)[1].split('"', 1)[0]
+    client.post('/admin/assets/' + item['id'], data={'csrf': csrf, 'title': '自定义名称', 'published': 'on'})
+    seed_wallpapers()
+    assert client.get('/v1/catalog/stock').json()['items'][0]['title'] == '自定义名称'
+    client.post('/admin/assets/' + item['id'] + '/delete', data={'csrf': csrf})
+    seed_wallpapers()
+    assert client.get('/v1/catalog/stock').json()['items'] == []

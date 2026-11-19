@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}管理分类 · CarVista{% endblock %}
+{% block page_title %}管理图库分类{% endblock %}
+{% block page_note %}分类名称和顺序同步到 App。新增分类可上传壁纸；App 打开图库或自动刷新后显示。{% endblock %}
+{% block body %}
+<div class="cv-panel p-3 mb-3">
+  <form method="post" action="/admin/categories" class="d-flex gap-2">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="text-nowrap align-self-center" for="new-category">新增分类</label>
+    <input class="form-control" id="new-category" name="title" maxlength="60" required>
+    <button class="btn btn-primary text-nowrap" type="submit">新增</button>
+  </form>
+</div>
+{% for category in gallery_categories %}
+<div class="cv-panel p-3 mb-3">
+  <form class="row g-2 align-items-end" method="post" action="/admin/categories/{{ category.id }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="col-md-7">
+      <label class="form-label" for="name-{{ category.id }}">分类名称{% if category.hidden %}（五连击解锁）{% endif %}</label>
+      <input id="name-{{ category.id }}" class="form-control" name="title" value="{{ category.title }}" maxlength="60" required>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="order-{{ category.id }}">顺序</label>
+      <input id="order-{{ category.id }}" class="form-control" type="number" name="sort_order" min="0" max="1000000" value="{{ category.sort_order }}" required>
+    </div>
+    <div class="col-md-2"><button class="btn btn-primary w-100" type="submit">保存</button></div>
+  </form>
+</div>
+{% endfor %}
+{% endblock %}

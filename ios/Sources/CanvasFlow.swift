@@ -52,7 +52,7 @@ struct CanvasHomeView: View {
     @AppStorage("CCGuideSeen") private var guideSeen = false
     @State private var guide = false
     @State private var tab = Tab.wallpaper
-    @State private var gallerySource = WallpaperGalleryView.Source.bing
+    @State private var gallerySource = WallpaperGalleryView.Source.stock
     @State private var wallpaperPath: [WallpaperRoute] = []
     @State private var galleryImport: GalleryImport?
 

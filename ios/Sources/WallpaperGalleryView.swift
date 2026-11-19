@@ -68,32 +68,23 @@ private enum BingGallery {
 }
 
 struct WallpaperGalleryView: View {
-    enum Source: String, CaseIterable, Identifiable {
-        case stock = "默认壁纸"
-        case bing = "Bing 每日精选"
-        case commons = "Commons 主题找图"
-        case buick = "别克壁纸"
-        case share = "共享壁纸"
-        var id: String { rawValue }
-        var key: String {
-            switch self {
-            case .stock: "stock"
-            case .bing: "bing"
-            case .commons: "commons"
-            case .buick: "buick"
-            case .share: "share"
-            }
-        }
-    }
+    typealias Source = GalleryCategory
     let use: (GalleryPick) -> Void
     @Binding var source: Source
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var categories = GalleryCategory.cached
+    @State private var galleryVisible = false
+    @EnvironmentObject private var model: WorkshopModel
+    private var visibleSources: [Source] {
+        categories.filter { $0.hidden == 0 || model.photoDownloadUnlocked }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(Source.allCases) { item in
+                        ForEach(visibleSources) { item in
                             Button { source = item } label: {
                                 Text(item.rawValue)
                                     .font(.subheadline.weight(source == item ? .semibold : .regular))
@@ -118,11 +109,9 @@ struct WallpaperGalleryView: View {
                 }
             }
             TabView(selection: $source) {
-                StockWallpaperGalleryView(use: use).tag(Source.stock)
-                BingWallpaperGalleryView(use: use).tag(Source.bing)
-                CommonsWallpaperGalleryView(use: use).tag(Source.commons)
-                BuickWallpaperGalleryView(use: use).tag(Source.buick)
-                SharedWallpaperGalleryView(use: use).tag(Source.share)
+                ForEach(visibleSources) { category in
+                    categoryPage(category).tag(category)
+                }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -130,6 +119,37 @@ struct WallpaperGalleryView: View {
         .navigationTitle("图库")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
+        .onAppear { galleryVisible = true }
+        .onDisappear { galleryVisible = false }
+        .task(id: galleryVisible && scenePhase == .active) {
+            guard galleryVisible, scenePhase == .active else { return }
+            while !Task.isCancelled {
+                await refreshCategories()
+                do { try await Task.sleep(for: .seconds(10)) } catch { break }
+            }
+        }
+        .onChange(of: model.photoDownloadUnlocked) { _, _ in
+            if !visibleSources.contains(source) { source = .stock }
+        }
+    }
+
+    @ViewBuilder
+    private func categoryPage(_ category: Source) -> some View {
+        switch category.kind {
+        case "stock": ServerWallpaperGalleryView(category: category, use: use)
+        case "share": SharedWallpaperGalleryView(use: use)
+        case "bing": BingWallpaperGalleryView(use: use)
+        case "commons": CommonsWallpaperGalleryView(use: use)
+        case "buick": BuickWallpaperGalleryView(use: use)
+        case "test": TestWallpaperGalleryView(use: use)
+        default: ServerWallpaperGalleryView(category: category, use: use)
+        }
+    }
+
+    private func refreshCategories() async {
+        guard let remote = await Source.fetch(), !Task.isCancelled else { return }
+        categories = remote
+        source = visibleSources.first(where: { $0 == source }) ?? .stock
     }
 }
 

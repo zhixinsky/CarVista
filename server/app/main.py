@@ -45,6 +45,8 @@ _INSTANT = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 
 def render(request: Request, name: str, context: dict) -> HTMLResponse:
     context = dict(context)
+    with connect() as conn:
+        context["gallery_categories"] = conn.execute("SELECT * FROM gallery_categories ORDER BY sort_order, id").fetchall()
     context["request"] = request
     return templates.TemplateResponse(request, name, context)
 
@@ -174,12 +176,63 @@ def create_app() -> FastAPI:
                 )
         return JSONResponse({"device_token": token})
 
+    @app.get("/v1/gallery/categories")
+    def gallery_categories() -> JSONResponse:
+        with connect() as conn:
+            rows = conn.execute("SELECT * FROM gallery_categories ORDER BY sort_order, id").fetchall()
+        return JSONResponse({"items": [dict(row) for row in rows]}, headers={"Cache-Control": "no-store"})
+
+    @app.get("/admin/categories", response_class=HTMLResponse)
+    def category_list(request: Request) -> HTMLResponse:
+        require_admin(request)
+        return render(request, "categories.html", page(request, section="categories"))
+
+    @app.post("/admin/categories")
+    def add_category(request: Request, title: str = Form(), csrf: str = Form()) -> RedirectResponse:
+        require_admin(request)
+        check_csrf(request, {"csrf": csrf})
+        clean_title = clip(title, 60)
+        if not clean_title:
+            raise HTTPException(400, "请输入分类名称")
+        key = "custom-" + uuid.uuid4().hex
+        with connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            order = conn.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM gallery_categories").fetchone()[0]
+            conn.execute("INSERT INTO gallery_categories VALUES (?, ?, 'catalog', ?, 0)", (key, clean_title, order))
+        return redirect_assets(key, "分类已新增，可上传壁纸")
+
+    @app.post("/admin/categories/{category_id}")
+    def edit_category(request: Request, category_id: str, title: str = Form(),
+                      sort_order: int = Form(), csrf: str = Form()) -> RedirectResponse:
+        require_admin(request)
+        check_csrf(request, {"csrf": csrf})
+        clean_title = clip(title, 60)
+        if not clean_title or not 0 <= sort_order <= 1000000:
+            raise HTTPException(400, "请填写名称和有效顺序")
+        with connect() as conn:
+            result = conn.execute("UPDATE gallery_categories SET title = ?, sort_order = ? WHERE id = ?",
+                                  (clean_title, sort_order, category_id))
+            if result.rowcount == 0:
+                raise HTTPException(404)
+        return RedirectResponse("/admin/categories?msg=分类已更新", status_code=303)
+
+    @app.get("/admin/categories/{category_id}/source", response_class=HTMLResponse)
+    def category_source(request: Request, category_id: str) -> HTMLResponse:
+        require_admin(request)
+        with connect() as conn:
+            category = conn.execute("SELECT * FROM gallery_categories WHERE id = ?", (category_id,)).fetchone()
+        if category is None:
+            raise HTTPException(404)
+        return render(request, "category_source.html", page(request, section=category_id, category=category))
+
     @app.get("/v1/catalog/{collection}")
     def catalog(collection: str, request: Request) -> Response:
-        stored = API_COLLECTIONS.get(collection)
-        if stored is None:
-            raise HTTPException(404)
+        stored = API_COLLECTIONS.get(collection, collection)
         with connect() as conn:
+            if stored != "builtin" and conn.execute(
+                "SELECT 1 FROM gallery_categories WHERE id = ? AND kind IN ('catalog', 'buick', 'test', 'stock')", (stored,)
+            ).fetchone() is None:
+                raise HTTPException(404)
             rows = conn.execute(
                 """SELECT id, title, width, height, updated_at FROM assets
                    WHERE collection = ? AND published = 1 ORDER BY sort_order, created_at""",
@@ -405,14 +458,16 @@ def create_app() -> FastAPI:
     @app.get("/admin/assets", response_class=HTMLResponse)
     def asset_list(request: Request, collection: str = "builtin") -> HTMLResponse:
         require_admin(request)
-        if collection not in COLLECTIONS:
-            collection = "builtin"
         with connect() as conn:
+            category = conn.execute("SELECT * FROM gallery_categories WHERE id = ? AND kind IN ('catalog', 'buick', 'test', 'stock')", (collection,)).fetchone()
+            if category is None and collection != "builtin":
+                raise HTTPException(404)
             rows = conn.execute(
                 "SELECT * FROM assets WHERE collection = ? ORDER BY sort_order, created_at",
                 (collection,),
             ).fetchall()
-        return render(request, "assets.html", page(request, section=collection, collection=collection, title=COLLECTIONS[collection], assets=rows))
+        return render(request, "assets.html", page(request, section=collection, collection=collection,
+                      title=category["title"] if category else COLLECTIONS["builtin"], assets=rows))
 
     @app.post("/admin/assets")
     async def create_asset(
@@ -425,8 +480,10 @@ def create_app() -> FastAPI:
     ) -> RedirectResponse:
         require_admin(request)
         check_csrf(request, {"csrf": csrf})
-        if collection not in COLLECTIONS:
-            raise HTTPException(400)
+        with connect() as conn:
+            valid = conn.execute("SELECT 1 FROM gallery_categories WHERE id = ? AND kind IN ('catalog', 'buick', 'test', 'stock')", (collection,)).fetchone()
+        if not valid and collection != "builtin":
+            raise HTTPException(400, "分类不存在或不支持上传")
         clean_title = clip(title.strip(), 60)
         if not clean_title:
             return redirect_assets(collection, "请填写名称")
@@ -707,6 +764,7 @@ def create_app() -> FastAPI:
                           max(0, shares.likes_offset + (SELECT count(*) FROM share_likes WHERE share_id = shares.id)) AS likes,
                           EXISTS(SELECT 1 FROM share_likes WHERE share_id = shares.id AND device_id = ?) AS liked
                    FROM shares
+                   WHERE shares.published = 1
                    ORDER BY likes DESC, shares.created_at DESC
                    LIMIT 100""",
                 (device_id,),
@@ -811,7 +869,7 @@ def create_app() -> FastAPI:
             raise HTTPException(429, "点赞过于频繁")
         with connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT likes_offset FROM shares WHERE id = ?", (share_id,)).fetchone()
+            row = conn.execute("SELECT likes_offset FROM shares WHERE id = ? AND published = 1", (share_id,)).fetchone()
             if row is None:
                 raise HTTPException(404)
             liked = conn.execute(
@@ -835,7 +893,7 @@ def create_app() -> FastAPI:
             raise HTTPException(404)
         column = "preview_path" if kind == "preview" else "original_path"
         with connect() as conn:
-            row = conn.execute(f"SELECT {column} AS path FROM shares WHERE id = ?", (share_id,)).fetchone()
+            row = conn.execute(f"SELECT {column} AS path FROM shares WHERE id = ? AND published = 1", (share_id,)).fetchone()
         path = images.safe_file(data_dir(), row["path"] if row else None)
         if path is None:
             raise HTTPException(404)
@@ -853,6 +911,50 @@ def create_app() -> FastAPI:
                    ORDER BY likes DESC, shares.created_at DESC LIMIT 200"""
             ).fetchall()
         return render(request, "shares.html", page(request, section="shares", shares=rows))
+
+    @app.get("/admin/shares/{share_id}/media/{kind}")
+    def admin_share_media(request: Request, share_id: str, kind: str, download: bool = False) -> FileResponse:
+        require_admin(request)
+        if kind not in {"preview", "original"}:
+            raise HTTPException(404)
+        column = "preview_path" if kind == "preview" else "original_path"
+        with connect() as conn:
+            row = conn.execute(f"SELECT {column} AS path FROM shares WHERE id = ?", (share_id,)).fetchone()
+        path = images.safe_file(data_dir(), row["path"] if row else None)
+        if path is None:
+            raise HTTPException(404)
+        media_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+        return FileResponse(path, media_type=media_type,
+                            filename=f"carvista-{share_id}{path.suffix.lower()}" if download else None)
+
+    @app.post("/admin/shares/{share_id}/publish")
+    def publish_share(request: Request, share_id: str, published: str = Form(""), csrf: str = Form()) -> RedirectResponse:
+        require_admin(request)
+        check_csrf(request, {"csrf": csrf})
+        with connect() as conn:
+            result = conn.execute("UPDATE shares SET published = ? WHERE id = ?", (int(published == "on"), share_id))
+            if result.rowcount == 0:
+                raise HTTPException(404, "共享壁纸不存在")
+        return RedirectResponse("/admin/shares?msg=发布状态已更新", status_code=303)
+
+    @app.post("/admin/shares/{share_id}/edit")
+    def edit_share(request: Request, share_id: str, title: str = Form(), description: str = Form(""),
+                   likes: int = Form(), csrf: str = Form()) -> RedirectResponse:
+        require_admin(request)
+        check_csrf(request, {"csrf": csrf})
+        clean_title = clip(title, 60)
+        if not clean_title:
+            raise HTTPException(400, "请输入壁纸名称")
+        if not 0 <= likes <= 1_000_000_000:
+            raise HTTPException(400, "点赞数需在 0 到 1000000000 之间")
+        with connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute("SELECT 1 FROM shares WHERE id = ?", (share_id,)).fetchone() is None:
+                raise HTTPException(404, "共享壁纸不存在")
+            count = conn.execute("SELECT count(*) FROM share_likes WHERE share_id = ?", (share_id,)).fetchone()[0]
+            conn.execute("UPDATE shares SET title = ?, description = ?, likes_offset = ? WHERE id = ?",
+                         (clean_title, clip(description, 200), likes - count, share_id))
+        return RedirectResponse("/admin/shares?msg=共享壁纸已更新", status_code=303)
 
     @app.post("/admin/shares/{share_id}/likes")
     def set_share_likes(request: Request, share_id: str, likes: int = Form(), csrf: str = Form()) -> RedirectResponse:
