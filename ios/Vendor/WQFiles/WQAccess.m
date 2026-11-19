@@ -599,6 +599,24 @@ static BOOL wq_mutation_current(NSString *path, WQMutation *mutation, BOOL versi
     return ok ? YES : wq_changed(errorText);
 }
 
+// Another wallpaper app can set the user immutable flag after writing. Reading
+// still works, but O_RDWR returns EPERM until the owner clears that flag.
+// System flags are left unchanged.
+static BOOL wq_clear_user_lock_flags(int parent, const char *name)
+{
+    struct stat st;
+    if (fstatat(parent, name, &st, AT_SYMLINK_NOFOLLOW) != 0 || !S_ISREG(st.st_mode)) return NO;
+    const uint32_t userLocks = UF_IMMUTABLE | UF_APPEND;
+    if ((st.st_flags & userLocks) == 0) return NO;
+    int fd = openat(parent, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) return NO;
+    struct stat opened;
+    BOOL cleared = fstat(fd, &opened) == 0 && WQSameObject(&st, &opened) &&
+        fchflags(fd, opened.st_flags & ~userLocks) == 0;
+    close(fd);
+    return cleared;
+}
+
 static BOOL wq_mutation_open(NSString *path, NSDictionary *expected, WQMutation *mutation, int flags, NSString **errorText)
 {
     *mutation = (WQMutation){ .fd = -1, .parent = -1 };
@@ -611,9 +629,17 @@ static BOOL wq_mutation_open(NSString *path, NSDictionary *expected, WQMutation 
     mutation->parent = WQOpenDirectoryNoLinksFlags(parent, O_SEARCH);
     if (mutation->parent < 0 && wq_is_denied(errno) && wq_grant(parent)) mutation->parent = WQOpenDirectoryNoLinksFlags(parent, O_SEARCH);
     if (mutation->parent >= 0) {
-        mutation->fd = WQOpenRegularAt(mutation->parent, path.lastPathComponent.fileSystemRepresentation, flags, 0);
+        const char *name = path.lastPathComponent.fileSystemRepresentation;
+        mutation->fd = WQOpenRegularAt(mutation->parent, name, flags, 0);
         if (mutation->fd < 0 && wq_is_denied(errno) && wq_grant(path))
-            mutation->fd = WQOpenRegularAt(mutation->parent, path.lastPathComponent.fileSystemRepresentation, flags, 0);
+            mutation->fd = WQOpenRegularAt(mutation->parent, name, flags, 0);
+        if (mutation->fd < 0 && errno == EPERM && (flags & O_ACCMODE) != O_RDONLY) {
+            int err = errno;
+            if (wq_clear_user_lock_flags(mutation->parent, name)) {
+                wq_log(@"write: cleared user immutable flag on %@", path);
+                mutation->fd = WQOpenRegularAt(mutation->parent, name, flags, 0);
+            } else errno = err;
+        }
     }
     if (mutation->fd < 0) {
         int err = errno;
