@@ -49,8 +49,9 @@ static BOOL CCAllowed(NSString *path) {
     @synchronized (CCRoots) { roots = CCRoots.allObjects; }
     for (NSString *root in roots) {
         // Recheck identity on every mutation; never accept an arbitrary path.
-        NSString *prefix = [[root stringByAppendingPathComponent:@"Library/Caches"] stringByAppendingString:@"/"];
-        if (![p hasPrefix:prefix] || ![wq_container_label(root) isEqualToString:CCIdentifier]) continue;
+        NSString *prefix = [root stringByAppendingString:@"/"];
+        NSString *kept = [CCKeptDirectory(root) stringByAppendingString:@"/"];
+        if (![p hasPrefix:prefix] || [p hasPrefix:kept] || ![wq_container_label(root) isEqualToString:CCIdentifier]) continue;
         NSString *cursor = p;
         while ([cursor hasPrefix:[root stringByAppendingString:@"/"]]) {
             struct stat st;
@@ -86,9 +87,31 @@ static UIImage *CCDecode(NSData *data) {
     CFRelease(array);
     return image;
 }
-static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellation *scan) {
-    NSString *caches = [root stringByAppendingPathComponent:@"Library/Caches"];
-    NSMutableArray *queue = [NSMutableArray arrayWithObject:caches];
+static NSString *CCNotePath(NSString *root) {
+    return [root stringByAppendingPathComponent:@"Library/Caches/CarVista.note"];
+}
+// The note lives in the CarPlay container, which is not removed when CarVista is
+// reinstalled. UserDefaults is wiped by a reinstall, so the note is what lets
+// the next install choose the same wallpaper container.
+static BOOL CCNoteConfirms(NSString *root) {
+    NSData *data = wq_read(CCNotePath(root), 1024, NULL);
+    if (!data.length) return NO;
+    NSString *saved = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    return [CCCanonical(saved) isEqualToString:CCCanonical(root)];
+}
+static void CCRemember(NSString *root) {
+    NSString *canonical = CCCanonical(root);
+    [NSUserDefaults.standardUserDefaults setObject:canonical forKey:@"CCContainer"];
+    NSData *data = [canonical dataUsingEncoding:NSUTF8StringEncoding];
+    if (!data.length) return;
+    NSString *note = CCNotePath(canonical);
+    if (!wq_write(note, data, NULL)) wq_create_file(note, data, NULL);
+}
+static NSString *CCKeptDirectory(NSString *root) {
+    return [root stringByAppendingPathComponent:@"Documents/CarVista"];
+}
+static NSArray *CCWalkFrom(NSString *root, NSString *start, NSString *skip, NSMutableArray *issues, WQScanCancellation *scan) {
+    NSMutableArray *queue = [NSMutableArray arrayWithObject:start];
     NSMutableArray *files = NSMutableArray.new;
     NSUInteger count = 0;
     while (queue.count && count < 20000 && !scan.isCancelled) {
@@ -103,11 +126,24 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellatio
             if (++count > 20000) break;
             if ([name isEqualToString:@"."] || [name isEqualToString:@".."] || [name containsString:@"/"]) continue;
             NSString *path = [dir stringByAppendingPathComponent:name];
+            if (skip.length && [CCCanonical(path) hasPrefix:skip]) continue;
             struct stat st;
             if (!wq_stat(path, &st)) { [issues addObject:[NSString stringWithFormat:@"无法检查 %@", path]]; continue; }
-            if (S_ISLNK(st.st_mode)) continue;
+            if (S_ISLNK(st.st_mode)) {
+                char link[1024];
+                ssize_t n = readlink(path.fileSystemRepresentation, link, sizeof(link) - 1);
+                if (n <= 0) continue;
+                link[n] = 0;
+                NSString *target = [NSString stringWithUTF8String:link];
+                if (![target hasPrefix:@"/"]) target = [dir stringByAppendingPathComponent:target];
+                target = CCCanonical(target);
+                if (![target hasPrefix:[CCCanonical(root) stringByAppendingString:@"/"]]) continue;
+                path = target;
+                name = path.lastPathComponent;
+                if (!wq_stat(path, &st) || !S_ISREG(st.st_mode)) continue;
+            }
             if (S_ISDIR(st.st_mode)) {
-                if (path.pathComponents.count - caches.pathComponents.count < 10) [queue addObject:path];
+                if (path.pathComponents.count - start.pathComponents.count < 10) [queue addObject:path];
                 else [issues addObject:[NSString stringWithFormat:@"达到目录深度限制：%@", path]];
             } else if (S_ISREG(st.st_mode) && [name.pathExtension.lowercaseString isEqualToString:@"cpbitmap"]) {
                 @autoreleasepool {
@@ -128,6 +164,18 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellatio
     if (queue.count || count > 20000) [issues addObject:@"达到 20000 个目录项上限，扫描不完整"];
     return files;
 }
+static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellation *scan) {
+    return CCWalkFrom(root, [root stringByAppendingPathComponent:@"Library/Caches"], nil, issues, scan);
+}
+static NSArray *CCWalkContainer(NSString *root, NSMutableArray *issues, WQScanCancellation *scan) {
+    NSString *skip = [CCCanonical(CCKeptDirectory(root)) stringByAppendingString:@"/"];
+    return CCWalkFrom(root, root, skip, issues, scan);
+}
+
+static void CCKeepWallpapers(NSString *root, NSArray *files);
+static void CCKeepData(NSString *root, NSString *name, NSData *data);
+static NSString *CCRootForPath(NSString *path);
+static NSInteger CCRestoreKept(NSString *root);
 
 @implementation CCEngine
 + (NSString *)appGroup { CCSetup(); return wq_app_group() ?: @""; }
@@ -144,31 +192,82 @@ static NSArray *CCWalk(NSString *root, NSMutableArray *issues, WQScanCancellatio
     CCAllowFullScan = allowFullScan;
     @synchronized (CCRoots) { [CCRoots removeAllObjects]; }
     NSString *remembered = [NSUserDefaults.standardUserDefaults stringForKey:@"CCContainer"];
-    if (remembered.length) CCRegisterRoot(remembered);
-    if (!CCRoots.count) {
-        wq_display_names_reset_miss();
-        NSArray *paths = wq_ls_container_paths(nil);
-        for (NSString *path in paths) {
-            if ([wq_bundle_id_for_container(path) isEqualToString:CCIdentifier]) CCRegisterRoot(path);
+    if (remembered.length && CCRegisterRoot(remembered)) {
+        NSString *root = CCCanonical(remembered);
+        NSMutableArray *issues = [NSMutableArray new];
+        NSArray *files = CCWalk(root, issues, scan);
+        if (scan.isCancelled) return CCFail(@"已停止查找，可随时重试。");
+        if (files.count) {
+            CCAllowFullScan = NO;
+            CCRemember(root);
+            CCKeepWallpapers(root, files);
+            return @{@"ok":@YES, @"root":root, @"files":files, @"issues":issues,
+                @"message":@"已找到壁纸缓存；请选择单个目标进行替换。"};
         }
-        if (!CCRoots.count) {
-            NSArray *containers = wq_enumerate(CCParent, 0, scan, nil);
-            wq_load_display_names();
-            for (NSString *path in containers) {
-                if (scan.isCancelled || CCRegisterRoot(path)) break;
-            }
+    }
+    NSMutableArray<NSString *> *candidates = [NSMutableArray new];
+    wq_display_names_reset_miss();
+    NSArray *paths = wq_ls_container_paths(nil);
+    for (NSString *path in paths) {
+        if (![wq_bundle_id_for_container(path) isEqualToString:CCIdentifier] || !CCRegisterRoot(path)) continue;
+        NSString *canonical = CCCanonical(path);
+        if ([canonical isEqualToString:CCCanonical(remembered)]) continue;
+        if (CCNoteConfirms(canonical)) [candidates insertObject:canonical atIndex:0];
+        else [candidates addObject:canonical];
+    }
+    if (!candidates.count && !CCRoots.count) {
+        NSArray *containers = wq_enumerate(CCParent, 0, scan, nil);
+        wq_load_display_names();
+        for (NSString *path in containers) {
+            if (scan.isCancelled) break;
+            if (!CCRegisterRoot(path)) continue;
+            [candidates addObject:CCCanonical(path)];
+            break;
         }
     }
     CCAllowFullScan = NO;
     if (scan.isCancelled) return CCFail(@"已停止查找，可随时重试。");
-    if (!CCRoots.count) return CCFail(allowFullScan ? @"未能确认 CarPlayWallpaper 容器。请导出日志；可能是签名、访问被拒绝或系统结构变化。" : @"快速定位未找到容器。首次使用可尝试完整扫描，可能需要数分钟。");
-    NSString *root = CCRoots.anyObject;
-    [NSUserDefaults.standardUserDefaults setObject:root forKey:@"CCContainer"];
-    NSMutableArray *issues = NSMutableArray.new;
-    NSArray *files = CCWalk(root, issues, scan);
+    if (!candidates.count && !CCRoots.count) return CCFail(allowFullScan ? @"未能确认 CarPlayWallpaper 容器。请导出日志；可能是签名、访问被拒绝或系统结构变化。" : @"快速定位未找到容器。首次使用可尝试完整扫描，可能需要数分钟。");
+    NSString *root = remembered.length ? CCCanonical(remembered) : nil;
+    NSArray *files = @[];
+    NSMutableArray *issues = [NSMutableArray new];
+    for (NSString *candidate in candidates) {
+        NSMutableArray *foundIssues = [NSMutableArray new];
+        NSArray *found = CCWalk(candidate, foundIssues, scan);
+        if (!found.count && !scan.isCancelled) found = CCWalkContainer(candidate, foundIssues, scan);
+        if (scan.isCancelled) return CCFail(@"已停止查找，可随时重试。");
+        if (!root) root = candidate;
+        if (found.count) {
+            root = candidate;
+            files = found;
+            issues = foundIssues;
+            break;
+        }
+        if (!remembered.length) { root = candidate; issues = foundIssues; }
+    }
+    if (!root) return CCFail(@"未能确认 CarPlayWallpaper 容器。请导出日志；可能是签名、访问被拒绝或系统结构变化。");
+    @synchronized (CCRoots) { [CCRoots removeAllObjects]; }
+    CCRegisterRoot(root);
+    NSInteger restored = 0;
+    if (!files.count) restored = CCRestoreKept(root);
     if (scan.isCancelled) return CCFail(@"已停止查找，可随时重试。");
-    return @{@"ok":@YES, @"root":root, @"files":files, @"issues":issues,
-        @"message": files.count ? @"已找到壁纸缓存；请选择单个目标进行替换。" : @"容器已找到，但没有可识别的 CPBitmap。请先在车机切换内置壁纸后重试；也可能是格式变化。"};
+    if (restored) {
+        issues = [NSMutableArray new];
+        files = CCWalk(root, issues, scan);
+    }
+    if (!files.count) {
+        issues = [NSMutableArray new];
+        files = CCWalkContainer(root, issues, scan);
+    }
+    if (scan.isCancelled) return CCFail(@"已停止查找，可随时重试。");
+    if (files.count) {
+        CCRemember(root);
+        CCKeepWallpapers(root, files);
+    }
+    NSString *message = files.count
+        ? (restored ? [NSString stringWithFormat:@"已找回 %ld 个上次替换并保留的壁纸。", (long)restored] : @"已找到壁纸缓存；请选择单个目标进行替换。")
+        : @"容器已找到，但没有可识别的 CPBitmap。请先在车机切换内置壁纸后重试；也可能是格式变化。";
+    return @{@"ok":@YES, @"root":root, @"files":files, @"issues":issues, @"message":message};
 }
 + (UIImage *)preview:(NSString *)path {
     if (!CCAllowed(path)) return nil;
@@ -197,6 +296,58 @@ static BOOL CCOriginalName(NSString *name) {
     NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:
         @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"];
     return [name rangeOfCharacterFromSet:allowed.invertedSet].location == NSNotFound;
+}
+static BOOL CCEnsureDir(NSString *path) {
+    struct stat st;
+    if (wq_stat(path, &st)) return S_ISDIR(st.st_mode);
+    return wq_create_dir(path, NULL) || (wq_stat(path, &st) && S_ISDIR(st.st_mode));
+}
+static NSString *CCRootForPath(NSString *path) {
+    NSString *canonical = CCCanonical(path);
+    NSArray *roots;
+    @synchronized (CCRoots) { roots = CCRoots.allObjects; }
+    for (NSString *root in roots) {
+        NSString *prefix = [CCCanonical(root) stringByAppendingString:@"/"];
+        if ([canonical hasPrefix:prefix]) return CCCanonical(root);
+    }
+    return nil;
+}
+static void CCKeepData(NSString *root, NSString *name, NSData *data) {
+    if (!root.length || !CCOriginalName(name) || !data.length) return;
+    NSString *documents = [root stringByAppendingPathComponent:@"Documents"];
+    NSString *directory = CCKeptDirectory(root);
+    if (!CCEnsureDir(documents) || !CCEnsureDir(directory)) return;
+    NSString *dest = [directory stringByAppendingPathComponent:name];
+    struct stat st;
+    if (wq_stat(dest, &st) && S_ISREG(st.st_mode) && (NSUInteger)st.st_size == data.length) return;
+    if (!wq_write(dest, data, NULL)) wq_create_file(dest, data, NULL);
+}
+static void CCKeepWallpapers(NSString *root, NSArray *files) {
+    for (NSDictionary *file in files) {
+        NSString *path = file[@"path"];
+        if (![path isKindOfClass:NSString.class]) continue;
+        NSData *data = wq_read(path, 0, NULL);
+        CCKeepData(root, path.lastPathComponent, data);
+    }
+}
+static NSInteger CCRestoreKept(NSString *root) {
+    NSArray *names = wq_list(CCKeptDirectory(root), NULL);
+    if (!names.count) return 0;
+    NSString *caches = [root stringByAppendingPathComponent:@"Library/Caches"];
+    if (!CCEnsureDir(caches)) return 0;
+    NSInteger restored = 0;
+    for (NSString *name in names) {
+        if (!CCOriginalName(name)) continue;
+        NSString *dest = [caches stringByAppendingPathComponent:name];
+        struct stat st;
+        if (wq_stat(dest, &st) && S_ISREG(st.st_mode) && st.st_size > 0) continue;
+        NSData *data = wq_read([CCKeptDirectory(root) stringByAppendingPathComponent:name], 0, NULL);
+        if (!data.length) continue;
+        if (!wq_create_file(dest, data, NULL) && !wq_write(dest, data, NULL)) continue;
+        wq_set_user_immutable(dest);
+        restored++;
+    }
+    return restored;
 }
 static NSString *CCOriginalDisplayName(NSString *filename) {
     NSDictionary *colors = @{@"Blue": @"蓝色", @"Purple": @"紫色", @"Gray": @"灰色", @"Green": @"绿色",
@@ -321,8 +472,10 @@ static BOOL CCPreserveOriginal(NSString *path, NSString **errorText) {
     if (!CCPreserveOriginal(path, &error)) return CCFail(error ?: @"无法保存苹果原始壁纸，已停止替换");
     if (!wq_write_if_unchanged(path, data, expected, &error)) return CCFail(error);
     if (!wq_set_user_immutable(path)) {
+        CCKeepData(CCRootForPath(path), path.lastPathComponent, data);
         return @{@"ok":@YES, @"message":@"已备份并写入，但没能锁定文件。下次连接车机时，系统可能会把它恢复成默认壁纸。"};
     }
+    CCKeepData(CCRootForPath(path), path.lastPathComponent, data);
     return @{@"ok":@YES, @"message":@"已备份并写入，并已锁定，避免下次连接车机时被系统恢复成默认壁纸。请重启 iPhone 后连接 CarPlay 检查效果。"};
 }
 + (NSDictionary *)unlockWallpapers {
