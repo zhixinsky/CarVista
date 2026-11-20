@@ -124,6 +124,20 @@ def test_device_token_does_not_reveal_internal_name(client: TestClient) -> None:
     users = client.get("/admin/users")
     assert "cv-" in users.text
     assert "iPhone17,2" in users.text
+    assert "失败" in users.text
+    succeeded = client.post("/v1/events", json={"events": [{
+        "id": str(uuid.uuid4()),
+        "type": "apply_result",
+        "at": "2026-11-19T05:00:00Z",
+        "ok": True,
+        "app_version": "0.5.0",
+        "ios_version": "27.2",
+        "payload": {"message": "已写入"},
+    }]}, headers={"Authorization": f"Bearer {token}"})
+    assert succeeded.status_code == 200
+    users = client.get("/admin/users")
+    assert "成功" in users.text
+    assert "失败" not in users.text
     failures = client.get("/admin/diagnostics")
     assert "诊断" in failures.text
     assert "缓存已发生变化" in failures.text

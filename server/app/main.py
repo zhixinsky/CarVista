@@ -783,7 +783,21 @@ def create_app() -> FastAPI:
         require_admin(request)
         with connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM devices WHERE install_id != ? ORDER BY last_seen DESC LIMIT 200",
+                """SELECT devices.*,
+                      CASE
+                        WHEN EXISTS (
+                          SELECT 1 FROM events
+                          WHERE events.device_id = devices.id AND events.type = 'apply_result' AND events.ok = 1
+                        ) THEN '成功'
+                        WHEN EXISTS (
+                          SELECT 1 FROM events
+                          WHERE events.device_id = devices.id AND events.type = 'apply_result'
+                        ) THEN '失败'
+                        ELSE '未尝试'
+                      END AS apply_status
+                   FROM devices
+                   WHERE install_id != ?
+                   ORDER BY last_seen DESC LIMIT 200""",
                 (LIBRARY_INSTALL,),
             ).fetchall()
         return render(request, "users.html", page(request, section="users", users=rows))

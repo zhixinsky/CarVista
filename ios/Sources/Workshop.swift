@@ -582,9 +582,6 @@ struct HelpView: View {
             } footer: {
                 Text("遇到应用失败时，可直接截取这一区域。解锁只去掉车机壁纸文件上的锁定，不改图片。查找、应用和解锁结果会保留到本次启动结束。")
             }
-            .confirmationDialog("解除车机壁纸锁定？解除后，其他软件或系统可能再次替换这些壁纸。", isPresented: $unlockConfirm, titleVisibility: .visible) {
-                Button("解锁壁纸") { model.unlockWallpapers() }
-            }
             Section("报告") {
                 Button("生成诊断报告") { model.makeReport(upload: true) }.disabled(model.busy)
                 if !model.reportNote.isEmpty {
@@ -616,13 +613,10 @@ struct HelpView: View {
         }
         .navigationTitle("安装检查与诊断")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("解除车机壁纸锁定？解除后，其他软件或系统可能再次替换这些壁纸。", isPresented: $unlockConfirm, titleVisibility: .visible) {
+            Button("解锁壁纸", role: .destructive) { model.unlockWallpapers() }
+            Button("取消", role: .cancel) {}
+        }
     }
 
-    private func diagnosticRow(_ title: String, result: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.subheadline.weight(.semibold))
-            Text(result).font(.subheadline).foregroundStyle(.secondary)
-        }
-        .accessibilityElement(children: .combine)
-    }
-}
+    privat
