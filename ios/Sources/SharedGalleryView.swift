@@ -125,7 +125,7 @@ struct SharedWallpaperGalleryView: View {
             return
         }
         items = remote
-        note = remote.isEmpty ? "还没有人精选壁纸。" : "按点赞数排列，点图片可选为当前壁纸。"
+        note = remote.isEmpty ? "还没有人精选壁纸。" : "此处展示车友制作并分享的壁纸，按点赞数排列，点图片可选为当前壁纸。"
     }
 
     private func like(_ item: SharedWallpaper) {
