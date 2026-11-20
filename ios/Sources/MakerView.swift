@@ -253,8 +253,22 @@ struct ComposeWallpaperView: View {
                 }
                 VStack(alignment: .leading, spacing: 16) {
                     Text("CarPlay").font(.headline)
-                    Label(model.group.isEmpty ? "本地制作可用，车机访问需有效签名" : "签名组已提供", systemImage: "checkmark.shield")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                    if model.group.isEmpty {
+                        Label("未检测到签名组，请检查证书", systemImage: "exclamationmark.shield")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(red: 0.78, green: 0.16, blue: 0.18), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    } else {
+                        Label("签名组已提供", systemImage: "checkmark.shield")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(Color(red: 0.11, green: 0.13, blue: 0.16), in: Capsule())
+                    }
                     HStack {
                         Button("检测车机壁纸") { model.scan(deep: false) }.disabled(locked || model.group.isEmpty)
                         Spacer()

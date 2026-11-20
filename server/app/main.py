@@ -268,6 +268,22 @@ def create_app() -> FastAPI:
             return redirect_assets(back, note)
         return RedirectResponse("/admin/categories?msg=分类已更新", status_code=303)
 
+    @app.post("/admin/categories/{category_id}/delete")
+    def delete_series(request: Request, category_id: str, csrf: str = Form()) -> RedirectResponse:
+        require_admin(request)
+        check_csrf(request, {"csrf": csrf})
+        with connect() as conn:
+            row = conn.execute("SELECT * FROM gallery_categories WHERE id = ?", (category_id,)).fetchone()
+            if row is None or not row["parent_id"]:
+                raise HTTPException(404)
+            parent_id = row["parent_id"]
+            assets = conn.execute("SELECT id FROM assets WHERE collection = ?", (category_id,)).fetchall()
+            conn.execute("DELETE FROM assets WHERE collection = ?", (category_id,))
+            conn.execute("DELETE FROM gallery_categories WHERE id = ?", (category_id,))
+        for asset in assets:
+            remove_asset_files(asset["id"])
+        return redirect_assets(parent_id, "系列已删除")
+
     @app.get("/admin/categories/{category_id}/source", response_class=HTMLResponse)
     def category_source(request: Request, category_id: str) -> HTMLResponse:
         require_admin(request)
@@ -738,11 +754,7 @@ def create_app() -> FastAPI:
         with connect() as conn:
             row = conn.execute("SELECT collection FROM assets WHERE id = ?", (asset_id,)).fetchone()
             conn.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
-        folder = data_dir() / "media" / asset_id
-        if folder.is_dir():
-            for child in folder.iterdir():
-                child.unlink(missing_ok=True)
-            folder.rmdir()
+        remove_asset_files(asset_id)
         return redirect_assets(row["collection"] if row else "builtin", "已删除")
 
     @app.get("/admin/assets/{asset_id}/preview")
@@ -1258,6 +1270,15 @@ def save_asset(conn, collection: str, title: str, filename: str, data: bytes) ->
          width, height, len(data), digest, stamp, stamp),
     )
     return "added"
+
+
+def remove_asset_files(asset_id: str) -> None:
+    folder = data_dir() / "media" / asset_id
+    if not folder.is_dir():
+        return
+    for child in folder.iterdir():
+        child.unlink(missing_ok=True)
+    folder.rmdir()
 
 
 def group_rows(conn, parent_id: str) -> list[dict]:

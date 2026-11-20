@@ -409,3 +409,9 @@ def test_folder_upload_creates_series(client: TestClient) -> None:
     }, files=[("files", ("夜.jpg", jpeg_bytes(24, 12), "image/jpeg"))])
     assert flat.json()["added"] == 1
     assert client.get("/v1/catalog/" + groups[1]["id"]).json()["items"][-1]["title"] == "夜"
+    removed = client.post("/admin/categories/" + groups[0]["id"] + "/delete", data={"csrf": csrf}, follow_redirects=False)
+    assert removed.status_code == 303
+    assert "collection=" + parent in removed.headers["location"]
+    left = client.get(f"/v1/gallery/categories/{parent}/groups").json()["items"]
+    assert [item["title"] for item in left] == ["城市"]
+    assert client.get("/v1/catalog/" + groups[0]["id"]).status_code == 404

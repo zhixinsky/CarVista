@@ -36,6 +36,10 @@
   <input class="form-control" id="series-title" name="title" maxlength="60" value="{{ category.title }}" required>
   <button class="btn btn-primary" type="submit">保存名称</button>
   {% if parent %}<a class="btn btn-outline-secondary" href="/admin/assets?collection={{ parent.id }}">返回{{ parent.title }}</a>{% endif %}
+  <button class="btn btn-outline-danger" type="submit" form="series-delete">删除系列</button>
+</form>
+<form id="series-delete" method="post" action="/admin/categories/{{ category.id }}/delete" onsubmit="return confirm('删除这个系列和里面的图片？App 将不再显示。')">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
 </form>
 {% endif %}
 <div class="cv-panel batch-board" id="batch-box" data-collection="{{ collection }}" data-csrf="{{ csrf }}" data-folders="{{ 1 if can_folders else 0 }}">
@@ -68,6 +72,10 @@
     <div class="series-foot">
       <a class="cv-link" href="/admin/assets?collection={{ group.id }}">管理图片</a>
       <button class="cv-link" type="button" onclick="document.getElementById('series-{{ group.id }}').showModal()">改名</button>
+      <form method="post" action="/admin/categories/{{ group.id }}/delete" onsubmit="return confirm('删除这个系列和里面的图片？App 将不再显示。')">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="cv-link-danger" type="submit">删除</button>
+      </form>
     </div>
     <dialog class="cv-dialog" id="series-{{ group.id }}">
       <form method="post" action="/admin/categories/{{ group.id }}">
