@@ -34,11 +34,14 @@ final class WorkshopModel: ObservableObject {
     @Published var issues: [String] = []
     @Published var root = ""
     @Published var reportURL: URL?
+    @Published var reportNote = ""
+    @Published var reportFailed = false
     @Published var generationProgress = 0.0
     @Published var photoDownloadUnlocked = false
     @Published var lastDetectedWallpaperSize: CGSize?
     @Published private(set) var lastScanSummary: String?
     @Published private(set) var lastApplySummary: String?
+    @Published private(set) var lastUnlockSummary: String?
     let group = CCEngine.appGroup()
     var appGroupStatus: String {
         guard !group.isEmpty else { return "未声明" }
@@ -164,6 +167,15 @@ final class WorkshopModel: ObservableObject {
         }
     }
 
+    func unlockWallpapers() {
+        guard !busy else { return }
+        message = "正在解除壁纸锁定…"
+        work({ CCEngine.unlockWallpapers() as? [String: Any] ?? [:] }) { result in
+            self.message = result["message"] as? String ?? "解锁失败"
+            self.lastUnlockSummary = self.message
+        }
+    }
+
     func apply(entry: SavedWallpaper, target: WallpaperTarget) {
         message = "正在备份、写入并校验…"
         work({ CCEngine.apply(target.raw, source: entry.bitmap.path) as? [String: Any] ?? [:] }) { result in
@@ -216,13 +228,21 @@ final class WorkshopModel: ObservableObject {
             try data.write(to: url, options: .atomic)
             reportURL = url
             if upload {
-                message = "正在上传诊断报告…"
+                reportFailed = false
+                reportNote = "诊断报告已生成"
                 Task {
                     let ok = await ServiceClient.shared.submitReport(data)
-                    self.message = ok ? "诊断报告已上传到后台" : "报告已保存在本机，上传后台失败"
+                    self.reportFailed = !ok
+                    self.reportNote = ok ? "诊断报告已生成" : "诊断报告已生成，上传后台失败"
                 }
             }
-        } catch { message = "导出报告失败：\(error.localizedDescription)" }
+        } catch {
+            message = "导出报告失败：\(error.localizedDescription)"
+            if upload {
+                reportFailed = true
+                reportNote = message
+            }
+        }
     }
 
     func saveVariants(image: UIImage, modes: [String], preservePixels: Bool = false, completion: @escaping ([SavedWallpaper]) -> Void) {
@@ -545,6 +565,7 @@ struct BackupsView: View {
 
 struct HelpView: View {
     @EnvironmentObject var model: WorkshopModel
+    @State private var unlockConfirm = false
     var body: some View {
         List {
             Section {
@@ -553,15 +574,25 @@ struct HelpView: View {
                 diagnosticRow("签名容器", result: model.appGroupStatus)
                 diagnosticRow("最近查找", result: model.lastScanSummary ?? "本次启动尚未查找")
                 diagnosticRow("最近应用", result: model.lastApplySummary ?? "本次启动尚未应用")
+                diagnosticRow("最近解锁", result: model.lastUnlockSummary ?? "本次启动尚未解锁")
+                Button("解锁壁纸") { unlockConfirm = true }
+                    .disabled(model.busy || model.group.isEmpty)
             } header: {
                 Text("诊断摘要")
             } footer: {
-                Text("遇到应用失败时，可直接截取这一区域。查找和应用结果会保留到本次启动结束。")
+                Text("遇到应用失败时，可直接截取这一区域。解锁只去掉车机壁纸文件上的锁定，不改图片。查找、应用和解锁结果会保留到本次启动结束。")
+            }
+            .confirmationDialog("解除车机壁纸锁定？解除后，其他软件或系统可能再次替换这些壁纸。", isPresented: $unlockConfirm, titleVisibility: .visible) {
+                Button("解锁壁纸") { model.unlockWallpapers() }
             }
             Section("报告") {
                 Button("生成诊断报告") { model.makeReport(upload: true) }.disabled(model.busy)
+                if !model.reportNote.isEmpty {
+                    Text(model.reportNote)
+                        .font(.subheadline)
+                        .foregroundStyle(model.reportFailed ? Color.red : Color.secondary)
+                }
                 if let reportURL = model.reportURL { ShareLink("导出报告", item: reportURL) }
-                Text("生成后会自动上传到后台用于排查。报告含目录路径与访问日志，分享前可自行查看。")
             }
             Section("测试步骤") {
                 Text("1. 签名时保留有效 App Group，再安装。")

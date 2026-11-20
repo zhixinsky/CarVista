@@ -652,6 +652,32 @@ BOOL wq_set_user_immutable(NSString *path)
     return ok;
 }
 
+BOOL wq_clear_user_immutable(NSString *path)
+{
+    path = WQCanonicalVarPath(path);
+    if (!WQAbsolutePathGrammar(path) || wq_is_backup_storage_path(path)) return NO;
+    NSString *parentPath = path.stringByDeletingLastPathComponent;
+    int parent = WQOpenDirectoryNoLinksFlags(parentPath, O_SEARCH);
+    if (parent < 0 && wq_is_denied(errno) && wq_grant(parentPath))
+        parent = WQOpenDirectoryNoLinksFlags(parentPath, O_SEARCH);
+    if (parent < 0) return NO;
+    const char *name = path.lastPathComponent.fileSystemRepresentation;
+    int fd = openat(parent, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0 && wq_is_denied(errno) && wq_grant(path))
+        fd = openat(parent, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    close(parent);
+    if (fd < 0) return NO;
+    struct stat st;
+    const uint32_t userLocks = UF_IMMUTABLE | UF_APPEND;
+    BOOL ok = fstat(fd, &st) == 0 && S_ISREG(st.st_mode);
+    if (ok && (st.st_flags & userLocks))
+        ok = fchflags(fd, st.st_flags & ~userLocks) == 0;
+    close(fd);
+    if (ok) wq_log(@"write: cleared user immutable flag on %@", path);
+    else wq_log(@"write: could not clear user immutable flag on %@", path);
+    return ok;
+}
+
 static BOOL wq_mutation_open(NSString *path, NSDictionary *expected, WQMutation *mutation, int flags, NSString **errorText)
 {
     *mutation = (WQMutation){ .fd = -1, .parent = -1 };

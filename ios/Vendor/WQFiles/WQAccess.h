@@ -42,6 +42,10 @@ NSDictionary<NSString *, NSNumber *> *_Nullable wq_file_version(NSString *path);
 // CarPlay rebuilds its cache. Sets only the user immutable flag. Returns NO
 // when that flag could not be set; the new bytes may already be in place.
 BOOL wq_set_user_immutable(NSString *path);
+// Clears the user immutable and append-only flags so another wallpaper app can
+// overwrite the file. System flags are left unchanged. Returns YES when the
+// file is already unlocked or the flags were cleared.
+BOOL wq_clear_user_immutable(NSString *path);
 
 // Overwrites a file in place (same inode, owner and xattrs). The previous
 // contents are backed up first, and a failed write attempts to roll back.

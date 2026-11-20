@@ -9,6 +9,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (nullable UIImage *)preview:(NSString *)path;
 + (NSDictionary *)encode:(UIImage *)image to:(NSString *)path;
 + (NSDictionary *)apply:(NSDictionary *)target source:(NSString *)source;
++ (NSDictionary *)unlockWallpapers;
 + (NSArray<NSDictionary *> *)backups;
 + (NSDictionary *)restore:(NSString *)backup;
 

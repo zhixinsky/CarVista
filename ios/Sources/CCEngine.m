@@ -325,6 +325,20 @@ static BOOL CCPreserveOriginal(NSString *path, NSString **errorText) {
     }
     return @{@"ok":@YES, @"message":@"已备份并写入，并已锁定，避免下次连接车机时被系统恢复成默认壁纸。请重启 iPhone 后连接 CarPlay 检查效果。"};
 }
++ (NSDictionary *)unlockWallpapers {
+    NSDictionary *found = [self discover:NO];
+    if (![found[@"ok"] boolValue]) return found;
+    NSArray *files = found[@"files"];
+    NSInteger cleared = 0, failed = 0;
+    for (NSDictionary *file in files) {
+        NSString *path = file[@"path"];
+        if (![path isKindOfClass:NSString.class] || !CCAllowed(path) || !wq_clear_user_immutable(path)) failed++;
+        else cleared++;
+    }
+    if (cleared == 0) return CCFail(failed ? @"没能解除壁纸锁定。" : @"没有可解锁的车机壁纸。请先在车机切换内置壁纸后再试。");
+    if (failed) return @{@"ok":@NO, @"message":[NSString stringWithFormat:@"已解除 %ld 个，%ld 个未能解除。", (long)cleared, (long)failed]};
+    return @{@"ok":@YES, @"message":[NSString stringWithFormat:@"已解除 %ld 个壁纸文件的锁定。其他软件现在可以替换。", (long)cleared]};
+}
 static void CCAdoptExistingOriginals(void) {
     NSString *base = wq_backup_root();
     NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:base];
