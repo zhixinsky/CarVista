@@ -42,6 +42,7 @@ static BOOL CCRegisterRoot(NSString *path) {
     @synchronized (CCRoots) { [CCRoots addObject:p]; }
     return YES;
 }
+static NSString *CCKeptDirectory(NSString *root);
 static BOOL CCAllowed(NSString *path) {
     NSString *p = CCCanonical(path);
     if (![p.pathExtension.lowercaseString isEqualToString:@"cpbitmap"]) return NO;
@@ -121,7 +122,8 @@ static NSArray *CCWalkFrom(NSString *root, NSString *start, NSString *skip, NSMu
         NSString *error = nil;
         NSArray *names = wq_list(dir, &error);
         if (!names) { [issues addObject:[NSString stringWithFormat:@"%@: %@", dir, error ?: @"无法列出目录"]]; continue; }
-        for (NSString *name in names) {
+        for (NSString *listed in names) {
+            NSString *name = listed;
             if (scan.isCancelled) break;
             if (++count > 20000) break;
             if ([name isEqualToString:@"."] || [name isEqualToString:@".."] || [name containsString:@"/"]) continue;
