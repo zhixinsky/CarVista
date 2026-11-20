@@ -601,6 +601,7 @@ static BOOL wq_mutation_current(NSString *path, WQMutation *mutation, BOOL versi
 
 // Another wallpaper app can set the user immutable flag after writing. Reading
 // still works, but O_RDWR returns EPERM until the owner clears that flag.
+// A replacement clears that user lock before opening the file for write.
 // System flags are left unchanged. Clearing the flag updates ctime only.
 static BOOL wq_clear_user_lock_flags(int parent, const char *name, NSDictionary **priorVersion)
 {
@@ -612,9 +613,10 @@ static BOOL wq_clear_user_lock_flags(int parent, const char *name, NSDictionary 
     if (fd < 0) return NO;
     struct stat opened;
     BOOL same = fstat(fd, &opened) == 0 && WQSameObject(&st, &opened);
-    if (same && priorVersion) *priorVersion = wq_version_for_stat(&opened);
+    NSDictionary *prior = same ? wq_version_for_stat(&opened) : nil;
     BOOL cleared = same && fchflags(fd, opened.st_flags & ~userLocks) == 0;
     close(fd);
+    if (cleared && priorVersion) *priorVersion = prior;
     return cleared;
 }
 
@@ -690,12 +692,25 @@ static BOOL wq_mutation_open(NSString *path, NSDictionary *expected, WQMutation 
     mutation->parent = WQOpenDirectoryNoLinksFlags(parent, O_SEARCH);
     if (mutation->parent < 0 && wq_is_denied(errno) && wq_grant(parent)) mutation->parent = WQOpenDirectoryNoLinksFlags(parent, O_SEARCH);
     NSDictionary *unlockedVersion = nil;
+    NSString *item = mutation->parent >= 0 ? path.lastPathComponent : nil;
+    const char *name = item.fileSystemRepresentation;
+    BOOL writing = (flags & O_ACCMODE) != O_RDONLY;
     if (mutation->parent >= 0) {
-        const char *name = path.lastPathComponent.fileSystemRepresentation;
+        struct stat locked;
+        const uint32_t userLocks = UF_IMMUTABLE | UF_APPEND;
+        BOOL hasUserLock = writing && fstatat(mutation->parent, name, &locked, AT_SYMLINK_NOFOLLOW) == 0 &&
+            S_ISREG(locked.st_mode) && (locked.st_flags & userLocks);
+        if (hasUserLock) {
+            BOOL cleared = wq_clear_user_lock_flags(mutation->parent, name, &unlockedVersion);
+            if (!cleared && wq_grant(path))
+                cleared = wq_clear_user_lock_flags(mutation->parent, name, &unlockedVersion);
+            if (cleared) wq_log(@"write: cleared user immutable flag on %@", path);
+            else wq_log(@"write: could not clear user immutable flag on %@", path);
+        }
         mutation->fd = WQOpenRegularAt(mutation->parent, name, flags, 0);
         if (mutation->fd < 0 && wq_is_denied(errno) && wq_grant(path))
             mutation->fd = WQOpenRegularAt(mutation->parent, name, flags, 0);
-        if (mutation->fd < 0 && errno == EPERM && (flags & O_ACCMODE) != O_RDONLY) {
+        if (mutation->fd < 0 && errno == EPERM && writing) {
             int err = errno;
             if (wq_clear_user_lock_flags(mutation->parent, name, &unlockedVersion)) {
                 wq_log(@"write: cleared user immutable flag on %@", path);
@@ -706,6 +721,12 @@ static BOOL wq_mutation_open(NSString *path, NSDictionary *expected, WQMutation 
     if (mutation->fd < 0) {
         int err = errno;
         NSString *stage = mutation->parent < 0 ? @"打开目标目录失败" : @"打开目标文件失败";
+        if (writing && name) {
+            struct stat still;
+            const uint32_t userLocks = UF_IMMUTABLE | UF_APPEND;
+            if (fstatat(mutation->parent, name, &still, AT_SYMLINK_NOFOLLOW) == 0 && (still.st_flags & userLocks))
+                stage = @"壁纸已锁定，解除锁定失败";
+        }
         if (errorText) *errorText = [NSString stringWithFormat:@"%@：%@", stage, wq_errno(err)];
         wq_mutation_close(mutation);
         return NO;
