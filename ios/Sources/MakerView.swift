@@ -179,7 +179,12 @@ struct ComposeWallpaperView: View {
                             Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                         }
                     }.buttonStyle(.plain).disabled(openShared == nil).accessibilityIdentifier("wallpaper.shared")
-                    if !sharedNote.isEmpty {
+                    if sharedBusy != nil {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("正在下载原图，请稍候").font(.caption.weight(.semibold))
+                        }
+                    } else if !sharedNote.isEmpty {
                         Text(sharedNote).font(.caption).foregroundStyle(.secondary)
                     }
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -195,6 +200,9 @@ struct ComposeWallpaperView: View {
                                         .frame(width: 160, height: 44)
                                         .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
                                         .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        .overlay {
+                                            if sharedBusy == item.id { WallpaperDownloadCover(compact: true) }
+                                        }
                                         .accessibilityHidden(true)
                                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                                             Text(item.title).font(.caption).lineLimit(1)

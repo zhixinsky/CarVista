@@ -58,6 +58,7 @@ struct SharedWallpaperGalleryView: View {
     @State private var busyID: String?
 
     var body: some View {
+        ZStack {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if !note.isEmpty {
@@ -80,6 +81,9 @@ struct SharedWallpaperGalleryView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay {
+                                if busyID == item.id { WallpaperDownloadCover() }
+                            }
                         }.buttonStyle(.plain).disabled(busyID != nil || model.busy)
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
@@ -106,6 +110,8 @@ struct SharedWallpaperGalleryView: View {
         }
         .task { await reload() }
         .refreshable { await reload() }
+        if busyID != nil { WallpaperDownloadBanner() }
+        }
     }
 
     private func reload() async {

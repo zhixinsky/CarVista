@@ -126,10 +126,11 @@ struct ServerWallpaperGalleryView: View {
     @EnvironmentObject private var model: WorkshopModel
     @State private var items: [CatalogItem] = []
     @State private var loading = false
-    @State private var importing = false
+    @State private var importingID: String?
     @State private var problem: String?
 
     var body: some View {
+        ZStack {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if let problem { Text(problem).font(.footnote).foregroundStyle(.secondary) }
@@ -150,6 +151,8 @@ struct ServerWallpaperGalleryView: View {
         }
         .task(id: category.id) { await reload() }
         .refreshable { await reload() }
+        if importingID != nil { WallpaperDownloadBanner() }
+        }
     }
 
     private func thumbRatio(_ item: CatalogItem) -> CGFloat? {
@@ -165,6 +168,9 @@ struct ServerWallpaperGalleryView: View {
                     .frame(maxWidth: .infinity)
                     .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay {
+                        if importingID == item.id { WallpaperDownloadCover(compact: true) }
+                    }
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(item.title).font(.subheadline).lineLimit(1)
                     Spacer(minLength: 4)
@@ -176,7 +182,7 @@ struct ServerWallpaperGalleryView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.plain).disabled(importing || model.busy)
+        .buttonStyle(.plain).disabled(importingID != nil || model.busy)
     }
 
     private func reload() async {
@@ -190,10 +196,10 @@ struct ServerWallpaperGalleryView: View {
     }
 
     private func select(_ item: CatalogItem) {
-        guard !importing, !model.busy else { return }
-        importing = true
+        guard importingID == nil, !model.busy else { return }
+        importingID = item.id
         Task {
-            defer { importing = false }
+            defer { importingID = nil }
             do {
                 let data = try await CatalogLibrary.originalData(item)
                 use(GalleryPick(data: data, source: category.id == "test" ? "test" : "catalog", assetID: item.id))
@@ -314,6 +320,37 @@ struct SeriesGalleryView: View {
         guard let group = groups.first(where: { $0.id == id }) else { return }
         selected = group
         focusGroupID = nil
+    }
+}
+
+struct WallpaperDownloadBanner: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView().controlSize(.small).tint(.white)
+            Text("正在下载原图，请稍候").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.black.opacity(0.82), in: Capsule())
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .allowsHitTesting(false)
+    }
+}
+
+struct WallpaperDownloadCover: View {
+    var compact = false
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+            VStack(spacing: compact ? 6 : 8) {
+                ProgressView().tint(.white)
+                Text(compact ? "下载中" : "正在下载原图…")
+                    .font(compact ? .caption2.weight(.semibold) : .caption.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
