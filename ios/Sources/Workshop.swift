@@ -1129,8 +1129,9 @@ private enum NetworkCheck {
             if let dns = span(item.domainLookupStartDate, item.domainLookupEndDate) { row["dnsMilliseconds"] = dns }
             if let connect = span(item.connectStartDate, item.connectEndDate) { row["connectMilliseconds"] = connect }
             if let tls = span(item.secureConnectionStartDate, item.secureConnectionEndDate) { row["tlsMilliseconds"] = tls }
-            let tlsVersion = item.negotiatedTLSProtocolVersion.rawValue
-            if tlsVersion != 0 { row["tlsVersion"] = tlsVersionName(tlsVersion) }
+            if let tlsVersion = item.negotiatedTLSProtocolVersion?.rawValue, tlsVersion != 0 {
+                row["tlsVersion"] = tlsVersionName(tlsVersion)
+            }
             if let response = item.response as? HTTPURLResponse { row["status"] = response.statusCode }
             return row
         }
