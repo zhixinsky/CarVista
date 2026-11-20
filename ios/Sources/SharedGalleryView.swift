@@ -13,6 +13,12 @@ struct SharedWallpaper: Identifiable, Equatable {
     let previewURL: URL
     let originalURL: URL
 
+    static var saved: [SharedWallpaper] {
+        guard let data = CatalogLibrary.savedData("shares"),
+              let feed = try? JSONDecoder().decode(ShareFeed.self, from: data) else { return [] }
+        return feed.items.map(SharedWallpaper.init)
+    }
+
     init(_ item: ShareItem) {
         id = item.id
         title = item.title
@@ -53,9 +59,14 @@ struct ShareItem: Decodable {
 struct SharedWallpaperGalleryView: View {
     @EnvironmentObject private var model: WorkshopModel
     let use: (GalleryPick) -> Void
-    @State private var items: [SharedWallpaper] = []
+    @State private var items: [SharedWallpaper]
     @State private var note = ""
     @State private var busyID: String?
+
+    init(use: @escaping (GalleryPick) -> Void) {
+        self.use = use
+        _items = State(initialValue: SharedWallpaper.saved)
+    }
 
     var body: some View {
         ZStack {
@@ -67,19 +78,8 @@ struct SharedWallpaperGalleryView: View {
                 ForEach(items) { item in
                     VStack(alignment: .leading, spacing: 8) {
                         Button { select(item) } label: {
-                            AsyncImage(url: item.previewURL) { phase in
-                                switch phase {
-                                case .success(let image):
-                                    image.resizable().scaledToFit()
-                                case .failure:
-                                    Label("预览加载失败", systemImage: "photo")
-                                        .frame(maxWidth: .infinity, minHeight: 92)
-                                default:
-                                    ProgressView()
-                                        .frame(maxWidth: .infinity, minHeight: 92)
-                                }
-                            }
-                            .frame(maxWidth: .infinity)
+                            GalleryImage(url: item.previewURL, mode: .fit)
+                            .frame(maxWidth: .infinity, minHeight: 92)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .overlay {
                                 if busyID == item.id { WallpaperDownloadCover() }

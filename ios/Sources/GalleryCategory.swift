@@ -55,9 +55,15 @@ struct GalleryCategory: Codable, Identifiable, Hashable {
         request.cachePolicy = .reloadIgnoringLocalCacheData
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw URLError(.badServerResponse) }
-        return try JSONDecoder().decode(AssetFeed.self, from: data).items.map {
+        let items = try JSONDecoder().decode(AssetFeed.self, from: data).items.map {
             CatalogItem(id: $0.id, title: $0.title, kind: .remote, remote: $0)
         }
+        CatalogLibrary.rememberAssets(items, collection: id)
+        return items
+    }
+
+    static func savedAssets(_ id: String) -> [CatalogItem] {
+        CatalogLibrary.savedAssets(id)
     }
     static var cached: [Self] {
         guard let data = UserDefaults.standard.data(forKey: "CarVistaGalleryCategories"),
@@ -85,13 +91,34 @@ struct GalleryCategory: Codable, Identifiable, Hashable {
         request.cachePolicy = .reloadIgnoringLocalCacheData
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-            return try JSONDecoder().decode(SeriesGroupFeed.self, from: data).items
-        } catch { return nil }
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return cachedSeriesGroups(parentID) }
+            let items = try JSONDecoder().decode(SeriesGroupFeed.self, from: data).items
+            CatalogLibrary.rememberData(data, name: "series-\(parentID)")
+            return items
+        } catch { return cachedSeriesGroups(parentID) }
+    }
+
+    private static func cachedSeriesGroups(_ parentID: String) -> [SeriesGroup]? {
+        let saved = savedSeriesGroups(parentID)
+        return saved.isEmpty ? nil : saved
+    }
+
+    static func savedSeriesGroups(_ parentID: String) -> [SeriesGroup] {
+        guard let data = CatalogLibrary.savedData("series-\(parentID)"),
+              let feed = try? JSONDecoder().decode(SeriesGroupFeed.self, from: data) else { return [] }
+        return feed.items
+    }
+
+    static func savedSeriesHomeEntries(includeHidden: Bool) -> [SeriesHomeEntry] {
+        cached.filter { $0.published != 0 && $0.kind == "series" }.flatMap { parent in
+            savedSeriesGroups(parent.id)
+                .filter { $0.hidden == 0 || includeHidden }
+                .map { SeriesHomeEntry(group: $0, parent: parent) }
+        }
     }
 
     static func fetchSeriesHomeEntries(includeHidden: Bool) async -> [SeriesHomeEntry] {
-        guard let categories = await fetch() else { return [] }
+        guard let categories = await fetch() else { return savedSeriesHomeEntries(includeHidden: includeHidden) }
         let parents = categories.filter { $0.published != 0 && $0.kind == "series" }
         var entries: [SeriesHomeEntry] = []
         for parent in parents where parent.hidden == 0 || includeHidden {
@@ -124,10 +151,16 @@ struct ServerWallpaperGalleryView: View {
     let category: GalleryCategory
     let use: (GalleryPick) -> Void
     @EnvironmentObject private var model: WorkshopModel
-    @State private var items: [CatalogItem] = []
+    @State private var items: [CatalogItem]
     @State private var loading = false
     @State private var importingID: String?
     @State private var problem: String?
+
+    init(category: GalleryCategory, use: @escaping (GalleryPick) -> Void) {
+        self.category = category
+        self.use = use
+        _items = State(initialValue: GalleryCategory.savedAssets(category.id))
+    }
 
     var body: some View {
         ZStack {
@@ -192,7 +225,9 @@ struct ServerWallpaperGalleryView: View {
         do {
             items = try await GalleryCategory.assets(category.id)
             problem = nil
-        } catch { problem = "无法加载壁纸，请下拉重试。" }
+        } catch {
+            if items.isEmpty { problem = "无法加载壁纸，请下拉重试。" }
+        }
     }
 
     private func select(_ item: CatalogItem) {
@@ -242,6 +277,7 @@ struct SeriesGalleryView: View {
         self.category = category
         self.use = use
         _focusGroupID = focusGroupID
+        _groups = State(initialValue: GalleryCategory.savedSeriesGroups(category.id))
     }
 
     private var visibleGroups: [SeriesGroup] {

@@ -178,7 +178,9 @@ actor ServiceClient {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return nil }
-            return try JSONDecoder().decode(ShareFeed.self, from: data).items.map(SharedWallpaper.init)
+            let items = try JSONDecoder().decode(ShareFeed.self, from: data).items.map(SharedWallpaper.init)
+            CatalogLibrary.rememberData(data, name: "shares")
+            return items
         } catch { return nil }
     }
 

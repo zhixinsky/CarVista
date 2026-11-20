@@ -157,18 +157,68 @@ enum CatalogLibrary {
         }
     }
 
-    private static func cached(_ collection: CatalogCollection) -> [CatalogItem] {
-        guard let url = try? directory().appendingPathComponent("catalog-\(collection.rawValue).json"),
-              let data = try? Data(contentsOf: url),
+    static func savedAssets(_ collection: String) -> [CatalogItem] {
+        guard let data = savedData("catalog-\(collection)"),
               let items = try? JSONDecoder().decode([RemoteAsset].self, from: data) else { return [] }
         return items.map { CatalogItem(id: $0.id, title: $0.title, kind: .remote, remote: $0) }
     }
 
-    private static func store(_ items: [CatalogItem], _ collection: CatalogCollection) {
+    static func rememberAssets(_ items: [CatalogItem], collection: String) {
         let assets = items.compactMap(\.remote)
-        guard let url = try? directory().appendingPathComponent("catalog-\(collection.rawValue).json"),
-              let data = try? JSONEncoder().encode(assets) else { return }
+        guard let data = try? JSONEncoder().encode(assets) else { return }
+        rememberData(data, name: "catalog-\(collection)")
+    }
+
+    static func savedThumbnail(_ item: CatalogItem) -> UIImage? {
+        guard let asset = item.remote,
+              let file = try? directory().appendingPathComponent(fileName("preview", asset, "jpg")),
+              imageFile(file) else { return nil }
+        return UIImage(contentsOfFile: file.path)
+    }
+
+    static func savedImage(_ url: URL) -> UIImage? {
+        let remote = ServiceClient.publicURL(url)
+        guard let file = try? directory().appendingPathComponent(imageName(remote)), imageFile(file) else { return nil }
+        return UIImage(contentsOfFile: file.path)
+    }
+
+    static func cachedImage(_ url: URL) async -> UIImage? {
+        let remote = ServiceClient.publicURL(url)
+        guard let file = try? await cachedFile(remote, name: imageName(remote)) else { return nil }
+        return UIImage(contentsOfFile: file.path)
+    }
+
+    static func rememberData(_ data: Data, name: String) {
+        guard let url = listFile(name) else { return }
         try? data.write(to: url, options: .atomic)
+    }
+
+    static func savedData(_ name: String) -> Data? {
+        guard let url = listFile(name) else { return nil }
+        return try? Data(contentsOf: url)
+    }
+
+    private static func cached(_ collection: CatalogCollection) -> [CatalogItem] {
+        savedAssets(collection.rawValue)
+    }
+
+    private static func store(_ items: [CatalogItem], _ collection: CatalogCollection) {
+        rememberAssets(items, collection: collection.rawValue)
+    }
+
+    private static func listFile(_ name: String) -> URL? {
+        let safe = name.filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+        guard !safe.isEmpty, let folder = try? directory() else { return nil }
+        return folder.appendingPathComponent("\(safe).json")
+    }
+
+    private static func imageName(_ url: URL) -> String {
+        var hash: UInt64 = 1469598103934665603
+        for byte in Data(url.absoluteString.utf8) {
+            hash ^= UInt64(byte)
+            hash &*= 1099511628211
+        }
+        return "remote-\(String(hash, radix: 16)).img"
     }
 
     private static func cachedFile(_ remote: URL, name: String) async throws -> URL {
@@ -211,6 +261,12 @@ struct CatalogThumb: View {
     let item: CatalogItem
     @State private var image: UIImage?
     @State private var failed = false
+
+    init(item: CatalogItem) {
+        self.item = item
+        _image = State(initialValue: CatalogLibrary.savedThumbnail(item))
+    }
+
     var body: some View {
         Group {
             if let image { Image(uiImage: image).resizable().scaledToFit() }

@@ -323,20 +323,32 @@ private struct BingWallpaperDetail: View {
 struct GalleryImage: View {
     let url: URL?
     let mode: ContentMode
+    @State private var image: UIImage?
+    @State private var failed = false
+
+    init(url: URL?, mode: ContentMode) {
+        self.url = url
+        self.mode = mode
+        _image = State(initialValue: url.flatMap(CatalogLibrary.savedImage))
+    }
 
     var body: some View {
         Rectangle().fill(.quaternary).overlay {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image): image.resizable().aspectRatio(contentMode: mode)
-                case .failure:
-                    Label("图片加载失败", systemImage: "photo").font(.caption).foregroundStyle(.secondary)
-                case .empty:
-                    if url == nil { Label("暂无预览", systemImage: "photo").font(.caption).foregroundStyle(.secondary) }
-                    else { ProgressView() }
-                @unknown default: EmptyView()
-                }
+            if let image {
+                Image(uiImage: image).resizable().aspectRatio(contentMode: mode)
+            } else if url == nil {
+                Label("暂无预览", systemImage: "photo").font(.caption).foregroundStyle(.secondary)
+            } else if failed {
+                Label("图片加载失败", systemImage: "photo").font(.caption).foregroundStyle(.secondary)
+            } else {
+                ProgressView()
             }
         }.clipped()
+        .task(id: url) {
+            guard let url else { return }
+            let loaded = await CatalogLibrary.cachedImage(url)
+            image = loaded ?? image
+            failed = loaded == nil && image == nil
+        }
     }
 }

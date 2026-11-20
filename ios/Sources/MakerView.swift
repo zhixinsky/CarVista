@@ -29,12 +29,12 @@ struct ComposeWallpaperView: View {
     @State private var cropOrientation = CropOrientationSession()
     @State private var applying = false
     @State private var catalogApply: CatalogApply?
-    @State private var sharedTop: [SharedWallpaper] = []
+    @State private var sharedTop = Array(SharedWallpaper.saved.prefix(10))
     @State private var sharedNote = ""
     @State private var sharedBusy: String?
-    @State private var seriesEntries: [SeriesHomeEntry] = []
+    @State private var seriesEntries = GalleryCategory.savedSeriesHomeEntries(includeHidden: false)
     @State private var seriesNote = ""
-    @State private var seriesVisible = false
+    @State private var seriesVisible = !GalleryCategory.savedSeriesHomeEntries(includeHidden: false).isEmpty
     @State private var problem: String?
     @State private var generated: [UUID: [SavedWallpaper]] = [:]
     @State private var preview: UIImage?
@@ -192,11 +192,7 @@ struct ComposeWallpaperView: View {
                             ForEach(sharedTop) { item in
                                 Button { applyShared(item) } label: {
                                     VStack(alignment: .leading, spacing: 4) {
-                                        AsyncImage(url: item.previewURL) { image in
-                                            image.resizable().scaledToFill()
-                                        } placeholder: {
-                                            Color(uiColor: .tertiarySystemFill)
-                                        }
+                                        GalleryImage(url: item.previewURL, mode: .fill)
                                         .frame(width: 160, height: 44)
                                         .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
                                         .clipShape(RoundedRectangle(cornerRadius: 10))
