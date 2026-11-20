@@ -216,7 +216,7 @@ final class WorkshopModel: ObservableObject {
         guard !busy else { return }
         busy = true
         reportFailed = false
-        reportNote = "正在检查网络…"
+        reportNote = ""
         Task {
             let network = await NetworkCheck.collect()
             self.busy = false
