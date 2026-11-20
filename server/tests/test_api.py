@@ -56,6 +56,8 @@ def test_catalog_hides_unpublished_and_names(client: TestClient) -> None:
     assert "internal_name" not in catalog.text
     local = client.get("/v1/catalog/builtin", headers={"host": "127.0.0.1", "x-forwarded-proto": "https"})
     assert local.json()["items"][0]["preview_url"].startswith("https://carplay.dokor.cn/v1/media/")
+    forwarded = client.get("/v1/catalog/builtin", headers={"host": "carplay.dokor.cn"})
+    assert forwarded.json()["items"][0]["preview_url"].startswith("https://carplay.dokor.cn/v1/media/")
     media = client.get(body["items"][0]["preview_url"].replace("http://testserver", ""))
     assert media.status_code == 200
     assert media.headers["content-type"].startswith("image/jpeg")
@@ -146,14 +148,24 @@ def test_device_token_does_not_reveal_internal_name(client: TestClient) -> None:
     assert "2026-11-19T04:00:00Z" not in failures.text
     uploaded = client.post("/v1/reports", json={
         "message": "无法写入缓存", "system": "27.2", "appVersion": "0.6.0", "log": "scan",
+        "network": {
+            "summary": "Wi-Fi 可用。百度可访问（200，80毫秒）。后台无法连接（超时）。",
+            "interface": "Wi-Fi",
+            "status": "可用",
+            "baidu": {"ok": True, "status": 200},
+            "backend": {"ok": False, "status": 0, "error": "超时"},
+        },
     }, headers={"Authorization": f"Bearer {token}"})
     assert uploaded.status_code == 200
     assert "internal_name" not in uploaded.text
     listed = client.get("/admin/diagnostics")
     assert "无法写入缓存" in listed.text
+    assert "百度可访问" in listed.text
     report_id = uploaded.json()["id"]
     detail = client.get(f"/admin/diagnostics/{report_id}")
     assert "scan" in detail.text
+    assert "网络检查" in detail.text
+    assert "后台无法连接" in detail.text
 
 
 def test_empty_catalog(client: TestClient) -> None:

@@ -2,6 +2,7 @@
 import SwiftUI
 import PhotosUI
 import ImageIO
+import Network
 
 @main
 struct CarVistaApp: App {
@@ -208,6 +209,22 @@ final class WorkshopModel: ObservableObject {
     }
 
     func makeReport(upload: Bool = false) {
+        guard upload else {
+            writeReport(upload: false, network: nil)
+            return
+        }
+        guard !busy else { return }
+        busy = true
+        reportFailed = false
+        reportNote = "正在检查网络…"
+        Task {
+            let network = await NetworkCheck.collect()
+            self.busy = false
+            self.writeReport(upload: true, network: network)
+        }
+    }
+
+    private func writeReport(upload: Bool, network: [String: Any]?) {
         do {
             let clock = ISO8601DateFormatter()
             clock.formatOptions = [.withInternetDateTime]
@@ -219,6 +236,7 @@ final class WorkshopModel: ObservableObject {
                 "appVersion": appVersion, "appGroupStatus": appGroupStatus,
                 "lastScan": lastScanSummary ?? "本次启动尚未查找",
                 "lastApply": lastApplySummary ?? "本次启动尚未应用"]
+            if let network { object["network"] = network }
             var data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
             if data.count > 900_000 {
                 object["log"] = "日志过长，已截断后上传"
@@ -228,12 +246,14 @@ final class WorkshopModel: ObservableObject {
             try data.write(to: url, options: .atomic)
             reportURL = url
             if upload {
+                let brief = network.map(NetworkCheck.brief) ?? ""
+                let note = brief.isEmpty ? "诊断报告已生成" : "诊断报告已生成。\(brief)"
                 reportFailed = false
-                reportNote = "诊断报告已生成"
+                reportNote = note
                 Task {
                     let ok = await ServiceClient.shared.submitReport(data)
                     self.reportFailed = !ok
-                    self.reportNote = ok ? "诊断报告已生成" : "诊断报告已生成，上传后台失败"
+                    self.reportNote = ok ? note : "诊断报告已生成，上传后台失败。\(brief)"
                 }
             }
         } catch {
@@ -619,4 +639,245 @@ struct HelpView: View {
         }
     }
 
-    privat
+    private func diagnosticRow(_ title: String, result: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.subheadline.weight(.semibold))
+            Text(result).font(.subheadline).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private enum NetworkCheck {
+    private struct PathFacts: Sendable {
+        var status: String
+        var interface: String
+        var expensive: Bool
+        var constrained: Bool
+    }
+
+    private struct LinkProbe: Sendable {
+        var url: String
+        var status: Int
+        var milliseconds: Int
+        var bytes: Int
+        var error: String
+
+        var dictionary: [String: Any] {
+            [
+                "url": url,
+                "ok": (200..<400).contains(status),
+                "status": status,
+                "milliseconds": milliseconds,
+                "bytes": bytes,
+                "error": error
+            ]
+        }
+    }
+
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 12
+        config.timeoutIntervalForResource = 20
+        config.waitsForConnectivity = false
+        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        return URLSession(configuration: config)
+    }()
+
+    static func collect() async -> [String: Any] {
+        async let path = pathFacts()
+        async let baidu = probe(URL(string: "https://www.baidu.com")!)
+        async let backend = probe(ServiceGate.baseURL)
+        let facts = await path
+        let baiduResult = await baidu
+        let backendResult = await backend
+        let image = await probeGalleryImage()
+        return [
+            "summary": summaryText(facts: facts, baidu: baiduResult, backend: backendResult, image: image),
+            "status": facts.status,
+            "interface": facts.interface,
+            "expensive": facts.expensive,
+            "constrained": facts.constrained,
+            "baidu": baiduResult.dictionary,
+            "backend": backendResult.dictionary,
+            "image": image.dictionary
+        ]
+    }
+
+    static func brief(_ network: [String: Any]) -> String {
+        let image = network["image"] as? [String: Any] ?? [:]
+        let picture = image["ok"] as? Bool == true ? "图库图片可打开" : "图库图片打不开"
+        return "\(word(network["baidu"], "百度"))，\(word(network["backend"], "网站"))，\(picture)。"
+    }
+
+    private static func word(_ value: Any?, _ name: String) -> String {
+        let item = value as? [String: Any] ?? [:]
+        let status = item["status"] as? Int ?? 0
+        if (200..<400).contains(status) { return "\(name)可访问" }
+        if status > 0 { return "\(name)返回\(status)" }
+        return "\(name)无法连接"
+    }
+
+    private static func summaryText(facts: PathFacts, baidu: LinkProbe, backend: LinkProbe, image: ImageProbe) -> String {
+        var notes = ["\(facts.interface) \(facts.status)"]
+        if facts.expensive { notes.append("计费网络") }
+        if facts.constrained { notes.append("低数据模式") }
+        return "\(notes.joined(separator: "，"))。\(detail("百度", baidu))。\(detail("网站", backend))。\(image.sentence)。"
+    }
+
+    private static func detail(_ name: String, _ probe: LinkProbe) -> String {
+        if (200..<400).contains(probe.status) {
+            return "\(name)可访问（\(probe.status)，\(probe.milliseconds)毫秒）"
+        }
+        if probe.status > 0 {
+            return "\(name)已连通但返回 \(probe.status)（\(probe.milliseconds)毫秒）"
+        }
+        let reason = probe.error.isEmpty ? "无法连接" : probe.error
+        return "\(name)无法连接（\(reason)）"
+    }
+
+    private static func probe(_ url: URL) async -> LinkProbe {
+        var request = URLRequest(url: url, timeoutInterval: 8)
+        request.httpMethod = "GET"
+        let start = Date()
+        do {
+            let (data, response) = try await session.data(for: request)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            return LinkProbe(url: url.absoluteString, status: code,
+                             milliseconds: elapsed(since: start), bytes: data.count, error: "")
+        } catch {
+            let reason = (error as? URLError).map { "\($0.localizedDescription)（\($0.code.rawValue)）" } ?? error.localizedDescription
+            return LinkProbe(url: url.absoluteString, status: 0,
+                             milliseconds: elapsed(since: start), bytes: 0, error: String(reason.prefix(180)))
+        }
+    }
+
+    private struct ImageProbe: Sendable {
+        var url = ""
+        var resolved = ""
+        var status = 0
+        var milliseconds = 0
+        var bytes = 0
+        var contentType = ""
+        var error: String
+
+        var ok: Bool { (200..<300).contains(status) && error.isEmpty }
+
+        var dictionary: [String: Any] {
+            [
+                "url": url, "resolved": resolved, "ok": ok, "status": status,
+                "milliseconds": milliseconds, "bytes": bytes, "contentType": contentType, "error": error
+            ]
+        }
+
+        var sentence: String {
+            if ok { return "图库预览图可打开（\(status)，\(milliseconds)毫秒，\(bytes)字节）" }
+            let reason = error.isEmpty ? "无法下载" : error
+            let address = resolved.isEmpty ? url : resolved
+            return address.isEmpty ? "图库预览图打不开（\(reason)）" : "图库预览图打不开（\(reason)）。地址 \(address)"
+        }
+    }
+
+    private struct CategoryList: Decodable { let items: [CategoryRow] }
+    private struct CategoryRow: Decodable { let id: String }
+    private struct PreviewList: Decodable { let items: [PreviewRow] }
+    private struct PreviewRow: Decodable {
+        let previewURL: URL
+        enum CodingKeys: String, CodingKey { case previewURL = "preview_url" }
+    }
+
+    private static func probeGalleryImage() async -> ImageProbe {
+        do {
+            let categories = try await get(ServiceGate.join("v1/gallery/categories"))
+            guard let listed = try? JSONDecoder().decode(CategoryList.self, from: categories.data),
+                  categories.status == 200 else {
+                return ImageProbe(error: "壁纸分类无法打开")
+            }
+            for category in listed.items {
+                let catalog = try await get(ServiceGate.join("v1/catalog/\(category.id)"))
+                guard catalog.status == 200, let feed = try? JSONDecoder().decode(PreviewList.self, from: catalog.data),
+                      let preview = feed.items.first?.previewURL else { continue }
+                return await downloadPreview(preview)
+            }
+            return ImageProbe(error: "后台没有可下载的图库图片")
+        } catch {
+            return ImageProbe(error: String(errorText(error).prefix(180)))
+        }
+    }
+
+    private static func downloadPreview(_ preview: URL) async -> ImageProbe {
+        let resolved = ServiceClient.publicURL(preview)
+        let start = Date()
+        do {
+            let result = try await get(resolved)
+            let type = (result.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
+            let magic = imageData(result.data)
+            var failure = ""
+            if !(200..<300).contains(result.status) {
+                failure = "状态 \(result.status)"
+            } else if !magic {
+                failure = "返回的不是图片（\(type.isEmpty ? "未知类型" : type)）"
+            }
+            return ImageProbe(url: preview.absoluteString, resolved: resolved.absoluteString, status: result.status,
+                              milliseconds: elapsed(since: start), bytes: result.data.count, contentType: type, error: failure)
+        } catch {
+            return ImageProbe(url: preview.absoluteString, resolved: resolved.absoluteString,
+                              milliseconds: elapsed(since: start), error: errorText(error))
+        }
+    }
+
+    private struct Body { let data: Data; let response: URLResponse; var status: Int { (response as? HTTPURLResponse)?.statusCode ?? 0 } }
+
+    private static func get(_ url: URL) async throws -> Body {
+        let (data, response) = try await session.data(for: URLRequest(url: url, timeoutInterval: 12))
+        return Body(data: data, response: response)
+    }
+
+    private static func imageData(_ data: Data) -> Bool {
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) { return true }
+        return data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    }
+
+    private static func errorText(_ error: Error) -> String {
+        let reason = (error as? URLError).map { "\($0.localizedDescription)（\($0.code.rawValue)）" } ?? error.localizedDescription
+        return String(reason.prefix(180))
+    }
+
+    private static func elapsed(since start: Date) -> Int {
+        Int(Date().timeIntervalSince(start) * 1000)
+    }
+
+    private static func pathFacts() async -> PathFacts {
+        await withCheckedContinuation { continuation in
+            let monitor = NWPathMonitor()
+            let queue = DispatchQueue(label: "carvista.netpath")
+            let lock = NSLock()
+            var resumed = false
+            func finish(_ facts: PathFacts) {
+                lock.lock()
+                defer { lock.unlock() }
+                guard !resumed else { return }
+                resumed = true
+                monitor.cancel()
+                continuation.resume(returning: facts)
+            }
+            monitor.pathUpdateHandler = { path in
+                let interface: String
+                if path.usesInterfaceType(.wifi) { interface = "Wi-Fi" }
+                else if path.usesInterfaceType(.cellular) { interface = "蜂窝" }
+                else if path.usesInterfaceType(.wiredEthernet) { interface = "有线" }
+                else { interface = path.status == .satisfied ? "其他" : "无" }
+                finish(PathFacts(
+                    status: path.status == .satisfied ? "可用" : "不可用",
+                    interface: interface,
+                    expensive: path.isExpensive,
+                    constrained: path.isConstrained
+                ))
+            }
+            monitor.start(queue: queue)
+            queue.asyncAfter(deadline: .now() + 2) {
+                finish(PathFacts(status: "未知", interface: "未知", expensive: false, constrained: false))
+            }
+        }
+    }
+}

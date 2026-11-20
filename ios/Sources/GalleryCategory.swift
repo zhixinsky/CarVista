@@ -222,7 +222,10 @@ struct SeriesGroup: Decodable, Identifiable, Hashable {
         case previewURL = "preview_url"
     }
 
-    var cover: URL? { previewURL.isEmpty ? nil : URL(string: previewURL) }
+    var cover: URL? {
+        guard !previewURL.isEmpty, let url = URL(string: previewURL) else { return nil }
+        return ServiceClient.publicURL(url)
+    }
 }
 
 struct SeriesGalleryView: View {

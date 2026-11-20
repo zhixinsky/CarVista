@@ -97,17 +97,24 @@ def shanghai_today() -> tuple[str, str]:
 templates.env.filters["sh"] = format_shanghai
 
 
+def secure_public_url(url: str) -> str:
+    """Phones refuse plain HTTP images even when the HTTPS homepage opens."""
+    if url.startswith("http://") and "dokor.cn" in url.lower():
+        return "https://" + url.removeprefix("http://")
+    return url
+
+
 def public_base(request: Request) -> str:
     """Address phones should use. Synology's proxy talks to 127.0.0.1 and leaves that host in the request."""
     configured = os.environ.get("CARVISTA_PUBLIC_URL", "").strip().rstrip("/")
     if configured:
-        return configured
+        return secure_public_url(configured)
     proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
     forwarded = request.headers.get("x-forwarded-host", "")
     host = (forwarded or request.headers.get("host") or request.url.netloc).split(",")[0].strip()
     name = host.split(":")[0].strip("[]").lower()
     if name and name not in {"127.0.0.1", "localhost", "::1"}:
-        return f"{proto}://{host}"
+        return secure_public_url(f"{proto}://{host}")
     return "https://carplay.dokor.cn"
 
 
@@ -402,7 +409,7 @@ def create_app() -> FastAPI:
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{report_id}.json"
         path.write_text(json.dumps(body, ensure_ascii=False, indent=2), encoding="utf-8")
-        summary = clip(body.get("message") or body.get("lastApply") or body.get("lastScan") or "诊断报告", 200)
+        summary = report_summary(body)
         stamp = now()
         with connect() as conn:
             conn.execute(
@@ -904,14 +911,18 @@ def create_app() -> FastAPI:
         if row is None:
             raise HTTPException(404)
         path = images.safe_file(data_dir(), row["path"])
+        network = None
         if path is None:
             text = "报告文件已丢失。"
         else:
             try:
-                text = json.dumps(localize_times(json.loads(path.read_text(encoding="utf-8"))), ensure_ascii=False, indent=2)
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(payload, dict) and isinstance(payload.get("network"), dict):
+                    network = payload["network"]
+                text = json.dumps(localize_times(payload), ensure_ascii=False, indent=2)
             except json.JSONDecodeError:
                 text = path.read_text(encoding="utf-8")
-        return render(request, "report.html", page(request, section="diagnostics", report=row, text=text))
+        return render(request, "report.html", page(request, section="diagnostics", report=row, text=text, network=network))
 
     @app.get("/v1/shares")
     def list_shares(request: Request) -> JSONResponse:
@@ -1221,6 +1232,17 @@ def new_internal_name(conn) -> str:
 
 def clip(value, limit: int) -> str:
     return str(value or "").strip()[:limit]
+
+
+def report_summary(body: dict) -> str:
+    network = body.get("network")
+    net = ""
+    if isinstance(network, dict) and isinstance(network.get("summary"), str):
+        net = network["summary"].strip()
+    base = clip(body.get("message") or body.get("lastApply") or body.get("lastScan") or "", 200)
+    if net and base:
+        return clip(f"{net} · {base}", 200)
+    return clip(net or base or "诊断报告", 200)
 
 
 def series_folder(path: str) -> str | None:

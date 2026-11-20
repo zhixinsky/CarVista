@@ -118,7 +118,7 @@ enum CatalogLibrary {
             return UIImage(contentsOfFile: url.path)
         case .remote:
             guard let asset = item.remote else { return nil }
-            guard let file = try? await cachedFile(asset.previewURL, name: fileName("preview", asset, "jpg")) else { return nil }
+            guard let file = try? await cachedFile(ServiceClient.publicURL(asset.previewURL), name: fileName("preview", asset, "jpg")) else { return nil }
             return UIImage(contentsOfFile: file.path)
         }
     }
@@ -136,7 +136,7 @@ enum CatalogLibrary {
         case .remote:
             guard let asset = item.remote else { throw CocoaError(.fileReadNoSuchFile) }
             let ext = asset.originalURL.pathExtension.isEmpty ? "jpg" : asset.originalURL.pathExtension
-            let file = try await cachedFile(asset.originalURL, name: fileName("original", asset, ext))
+            let file = try await cachedFile(ServiceClient.publicURL(asset.originalURL), name: fileName("original", asset, ext))
             return try Data(contentsOf: file)
         }
     }
@@ -173,15 +173,25 @@ enum CatalogLibrary {
 
     private static func cachedFile(_ remote: URL, name: String) async throws -> URL {
         let destination = try directory().appendingPathComponent(name)
-        if FileManager.default.fileExists(atPath: destination.path) { return destination }
+        if FileManager.default.fileExists(atPath: destination.path) {
+            if imageFile(destination) { return destination }
+            try? FileManager.default.removeItem(at: destination)
+        }
         let request = URLRequest(url: remote, timeoutInterval: 30)
         let (temporary, response) = try await URLSession.shared.download(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), imageFile(temporary) else {
             throw URLError(.badServerResponse)
         }
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: temporary, to: destination)
         return destination
+    }
+
+    private static func imageFile(_ url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url),
+              let header = try? handle.read(upToCount: 8), header.count >= 3 else { return false }
+        if header.starts(with: [0xFF, 0xD8, 0xFF]) { return true }
+        return header.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     }
 
     private static func fileName(_ prefix: String, _ asset: RemoteAsset, _ ext: String) -> String {
@@ -200,12 +210,21 @@ enum CatalogLibrary {
 struct CatalogThumb: View {
     let item: CatalogItem
     @State private var image: UIImage?
+    @State private var failed = false
     var body: some View {
         Group {
             if let image { Image(uiImage: image).resizable().scaledToFit() }
-            else { Color(uiColor: .tertiarySystemFill) }
+            else if failed {
+                Label("图片加载失败", systemImage: "photo").font(.caption).foregroundStyle(.secondary)
+            } else {
+                ProgressView()
+            }
         }
-        .task(id: "\(item.id)-\(item.remote?.updatedAt ?? "")") { image = await CatalogLibrary.thumbnail(item) }
+        .task(id: "\(item.id)-\(item.remote?.updatedAt ?? "")") {
+            let loaded = await CatalogLibrary.thumbnail(item)
+            image = loaded
+            failed = loaded == nil
+        }
     }
 }
 

@@ -279,8 +279,13 @@ actor ServiceClient {
     }
 
     static func publicURL(_ url: URL) -> URL {
-        guard let host = url.host?.lowercased(), ["127.0.0.1", "localhost", "::1"].contains(host) else { return url }
+        guard let host = url.host?.lowercased() else { return url }
+        let local = ["127.0.0.1", "localhost", "::1"].contains(host)
+        let apiHost = ServiceGate.baseURL.host?.lowercased()
+        let insecureAPI = url.scheme?.lowercased() == "http" && (host == apiHost || host == "carplay.dokor.cn")
+        guard local || insecureAPI else { return url }
         let path = url.path.split(separator: "/").joined(separator: "/")
+        guard !path.isEmpty else { return ServiceGate.baseURL }
         return ServiceGate.join(path)
     }
 
