@@ -42,6 +42,62 @@ enum WallpaperRenderer {
             return premultiply(vec4(rgb, pixel.a));
         }
         """)
+    private static let advancedKernel = CIKernel(source: """
+        kernel vec4 advancedSeam(sampler image, sampler lut, float width, float range, float curve,
+                                 float local, float protect, float black, float white, float gamma,
+                                 float gainR, float gainG, float gainB, float offR, float offG, float offB,
+                                 float useCurves) {
+            vec4 source = sample(image, samplerCoord(image));
+            float x = max(0.0, (destCoord().x - 0.5) / max(width - 1.0, 1.0));
+            if (local > 0.5 && x >= range) { return source; }
+            float weight = local > 0.5 ? pow(1.0 - smoothstep(0.0, range, x), curve) : 1.0;
+            if (weight <= 0.0001) { return source; }
+            vec4 pixel = unpremultiply(source);
+            float span = max(white - black, 0.0001);
+            vec3 rgb = (pixel.rgb - vec3(black)) / vec3(span);
+            rgb = pow(max(rgb, vec3(0.0)), vec3(max(gamma, 0.05)));
+            rgb = rgb * vec3(gainR, gainG, gainB) + vec3(offR, offG, offB);
+            float inR = rgb.r;
+            float inG = rgb.g;
+            float inB = rgb.b;
+            vec4 masterR = sample(lut, samplerTransform(lut, vec2(clamp(inR, 0.0, 1.0) * 255.0 + 0.5, 0.5)));
+            vec4 masterG = sample(lut, samplerTransform(lut, vec2(clamp(inG, 0.0, 1.0) * 255.0 + 0.5, 0.5)));
+            vec4 masterB = sample(lut, samplerTransform(lut, vec2(clamp(inB, 0.0, 1.0) * 255.0 + 0.5, 0.5)));
+            float mr = masterR.r;
+            float mg = masterG.r;
+            float mb = masterB.r;
+            if (inR > 1.0) mr += inR - 1.0;
+            if (inR < 0.0) mr += inR;
+            if (inG > 1.0) mg += inG - 1.0;
+            if (inG < 0.0) mg += inG;
+            if (inB > 1.0) mb += inB - 1.0;
+            if (inB < 0.0) mb += inB;
+            vec4 toneR = sample(lut, samplerTransform(lut, vec2(clamp(mr, 0.0, 1.0) * 255.0 + 0.5, 0.5)));
+            vec4 toneG = sample(lut, samplerTransform(lut, vec2(clamp(mg, 0.0, 1.0) * 255.0 + 0.5, 0.5)));
+            vec4 toneB = sample(lut, samplerTransform(lut, vec2(clamp(mb, 0.0, 1.0) * 255.0 + 0.5, 0.5)));
+            float rr = toneR.g;
+            float gg = toneG.b;
+            float bb = toneB.a;
+            if (mr > 1.0) rr += mr - 1.0;
+            if (mr < 0.0) rr += mr;
+            if (mg > 1.0) gg += mg - 1.0;
+            if (mg < 0.0) gg += mg;
+            if (mb > 1.0) bb += mb - 1.0;
+            if (mb < 0.0) bb += mb;
+            if (useCurves > 0.5) rgb = vec3(rr, gg, bb);
+            if (protect > 0.5) {
+                float peak = max(rgb.r, max(rgb.g, rgb.b));
+                float knee = 0.78;
+                if (peak > knee) {
+                    float over = peak - knee;
+                    float safePeak = knee + (1.0 - knee) * over / (over + 0.35);
+                    rgb *= safePeak / max(peak, 0.0001);
+                }
+            }
+            vec3 mixed = mix(clamp(pixel.rgb, vec3(0.0), vec3(1.0)), clamp(rgb, vec3(0.0), vec3(1.0)), weight);
+            return premultiply(vec4(mixed, pixel.a));
+        }
+        """)
     static func format() -> UIGraphicsImageRendererFormat {
         let f = UIGraphicsImageRendererFormat(); f.scale = 1; f.opaque = true; f.preferredRange = .standard
         return f
@@ -141,6 +197,28 @@ enum WallpaperRenderer {
             ) else { throw CocoaError(.fileWriteUnknown) }
             output = blended
         }
+        if let grade = adjustment.leftEdge?.advanced, grade.needsBlend {
+            let width = min(0.5, max(0, adjustment.leftEdge?.width ?? 0))
+            if !(grade.local && width <= 0) {
+                let levels = grade.levelInputs
+                let useCurves = !WallpaperAdvancedGrade.linear(grade.master) || !WallpaperAdvancedGrade.linear(grade.red)
+                    || !WallpaperAdvancedGrade.linear(grade.green) || !WallpaperAdvancedGrade.linear(grade.blue)
+                guard let lut = curveLUT(grade),
+                      let graded = advancedKernel?.apply(
+                        extent: input.extent,
+                        roiCallback: { index, rect in index == 0 ? rect : CGRect(x: 0, y: 0, width: 256, height: 1) },
+                        arguments: [
+                            output, lut, input.extent.width, grade.local ? width : 1, max(0.75, min(3, adjustment.leftEdge?.curve ?? 1)),
+                            grade.local ? 1.0 : 0.0, grade.protectHighlights ? 1.0 : 0.0,
+                            levels.black, levels.white, min(4, max(0.05, levels.gamma)),
+                            min(2.5, max(0.25, grade.gainRed)), min(2.5, max(0.25, grade.gainGreen)), min(2.5, max(0.25, grade.gainBlue)),
+                            min(0.5, max(-0.5, grade.offsetRed)), min(0.5, max(-0.5, grade.offsetGreen)), min(0.5, max(-0.5, grade.offsetBlue)),
+                            useCurves ? 1.0 : 0.0
+                        ]
+                      ) else { throw CocoaError(.fileWriteUnknown) }
+                output = graded
+            }
+        }
         guard let result = context.createCGImage(output, from: input.extent) else { throw CocoaError(.fileWriteUnknown) }
         return UIImage(cgImage: result, scale: image.scale, orientation: image.imageOrientation)
     }
@@ -175,4 +253,104 @@ enum WallpaperRenderer {
             source.draw(in: CropGeometry.fit(source: source.size, target: canvas))
         }
     }
+
+    static func histogram(_ image: UIImage, leftFraction: Double) -> WallpaperHistogram {
+        let bins = WallpaperHistogram.bins
+        guard let cg = image.cgImage, cg.width > 0, cg.height > 0 else { return .empty }
+        let fraction = min(1, max(0.02, leftFraction))
+        let columns = max(1, Int((Double(cg.width) * fraction).rounded(.up)))
+        let height = cg.height
+        let bytesPerRow = columns * 4
+        var pixels = [UInt8](repeating: 0, count: bytesPerRow * height)
+        let drawn = pixels.withUnsafeMutableBytes { raw -> Bool in
+            guard let base = raw.baseAddress,
+                  let context = CGContext(
+                    data: base, width: columns, height: height, bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                  ) else { return false }
+            context.interpolationQuality = .none
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: height))
+            return true
+        }
+        guard drawn else { return .empty }
+        var red = [Int](repeating: 0, count: bins)
+        var green = [Int](repeating: 0, count: bins)
+        var blue = [Int](repeating: 0, count: bins)
+        let stepX = max(1, columns / 240)
+        let stepY = max(1, height / 240)
+        var count = 0
+        var y = 0
+        while y < height {
+            var x = 0
+            while x < columns {
+                let offset = (y * columns + x) * 4
+                let alpha = Int(pixels[offset + 3])
+                if alpha > 8 {
+                    let scale = 255.0 / Double(alpha)
+                    func bin(_ byte: UInt8) -> Int {
+                        min(bins - 1, Int(min(1, Double(byte) * scale / 255) * Double(bins)))
+                    }
+                    red[bin(pixels[offset])] += 1
+                    green[bin(pixels[offset + 1])] += 1
+                    blue[bin(pixels[offset + 2])] += 1
+                    count += 1
+                }
+                x += stepX
+            }
+            y += stepY
+        }
+        guard count > 0 else { return .empty }
+        func normalize(_ values: [Int]) -> [Float] {
+            let peak = Float(max(1, values.max() ?? 1))
+            return values.map { Float($0) / peak }
+        }
+        return WallpaperHistogram(red: normalize(red), green: normalize(green), blue: normalize(blue))
+    }
+
+    private static func evaluateCurve(_ points: [WallpaperCurvePoint], at x: Double) -> Double {
+        let ordered = WallpaperAdvancedGrade.ordered(points)
+        if x <= ordered[0].x { return ordered[0].y }
+        if x >= ordered[ordered.count - 1].x { return ordered[ordered.count - 1].y }
+        for index in 1..<ordered.count where x <= ordered[index].x {
+            let left = ordered[index - 1]
+            let right = ordered[index]
+            let span = right.x - left.x
+            let t = span <= 0.0001 ? 0 : (x - left.x) / span
+            return min(1, max(0, left.y + (right.y - left.y) * t))
+        }
+        return ordered[ordered.count - 1].y
+    }
+
+    private static func curveLUT(_ grade: WallpaperAdvancedGrade) -> CIImage? {
+        let count = 256
+        var samples = [Float](repeating: 0, count: count * 4)
+        for index in 0..<count {
+            let x = Double(index) / Double(count - 1)
+            samples[index * 4] = Float(evaluateCurve(grade.master, at: x))
+            samples[index * 4 + 1] = Float(evaluateCurve(grade.red, at: x))
+            samples[index * 4 + 2] = Float(evaluateCurve(grade.green, at: x))
+            samples[index * 4 + 3] = Float(evaluateCurve(grade.blue, at: x))
+        }
+        let data = samples.withUnsafeBufferPointer { Data(buffer: $0) }
+        return CIImage(
+            bitmapData: data,
+            bytesPerRow: count * MemoryLayout<Float>.size * 4,
+            size: CGSize(width: count, height: 1),
+            format: .RGBAf,
+            colorSpace: nil
+        )
+    }
+}
+
+struct WallpaperHistogram: Equatable {
+    var red: [Float]
+    var green: [Float]
+    var blue: [Float]
+    static let bins = 64
+    static let empty = WallpaperHistogram(
+        red: Array(repeating: 0, count: bins),
+        green: Array(repeating: 0, count: bins),
+        blue: Array(repeating: 0, count: bins)
+    )
 }

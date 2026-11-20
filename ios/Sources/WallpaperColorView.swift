@@ -13,6 +13,7 @@ struct WallpaperColorView: View {
     @State private var problem: String?
     @State private var savedEdge: WallpaperLeftEdgeBlend
     @State private var savedMask: WallpaperMaskCompensation
+    @State private var savedAdvanced: WallpaperAdvancedGrade
     @State private var usedWidePreset = false
     private static let widePreset = WallpaperLeftEdgeBlend(width: 0.20, brightness: 0.90, saturation: 0.08, curve: 1)
 
@@ -23,7 +24,8 @@ struct WallpaperColorView: View {
         _adjustment = State(initialValue: photo.adjustment.color ?? .init())
         _savedEdge = State(initialValue: photo.adjustment.color?.leftEdge ?? .init())
         _savedMask = State(initialValue: photo.adjustment.color?.mask ?? .init())
-        _usedWidePreset = State(initialValue: photo.adjustment.color?.leftEdge == Self.widePreset)
+        _savedAdvanced = State(initialValue: photo.adjustment.color?.leftEdge?.advanced ?? .init())
+        _usedWidePreset = State(initialValue: Self.matchesWide(photo.adjustment.color?.leftEdge))
     }
 
     var body: some View {
@@ -91,7 +93,9 @@ struct WallpaperColorView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Button("大联屏融合补偿") {
-                    adjustment.leftEdge = Self.widePreset
+                    var preset = Self.widePreset
+                    preset.advanced = adjustment.leftEdge?.advanced
+                    adjustment.leftEdge = preset
                     usedWidePreset = true
                     showOriginal = false
                 }
@@ -99,7 +103,7 @@ struct WallpaperColorView: View {
                 .disabled(original == nil)
                 if usedWidePreset {
                     Text(adjustment.leftEdge == nil ? "大联屏融合补偿已暂停" :
-                         adjustment.leftEdge == Self.widePreset ? "大联屏预设已应用" : "大联屏预设已手动修改")
+                         Self.matchesWide(adjustment.leftEdge) ? "大联屏预设已应用" : "大联屏预设已手动修改")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 if adjustment.leftEdge != nil && adjustment.mask != nil {
@@ -160,6 +164,7 @@ struct WallpaperColorView: View {
                     adjustment = .init()
                     savedEdge = .init()
                     savedMask = .init()
+                    savedAdvanced = .init()
                     usedWidePreset = false
                     showOriginal = false
                 }
@@ -191,13 +196,48 @@ struct WallpaperColorView: View {
                        step: 0.05, scale: 1, format: "%.2f")
                 Text("1.00 为标准 Smoothstep。数值越大，补偿越集中在左边缘。")
                     .font(.caption).foregroundStyle(.secondary)
+                Toggle("高级调色", isOn: Binding(
+                    get: { adjustment.leftEdge?.advanced != nil },
+                    set: { enabled in
+                        if let grade = adjustment.leftEdge?.advanced { savedAdvanced = grade }
+                        adjustment.leftEdge?.advanced = enabled ? savedAdvanced : nil
+                        showOriginal = false
+                    }
+                ))
+                if adjustment.leftEdge?.advanced == nil {
+                    Text("打开后可单独调整接缝附近的色阶、RGB 和曲线。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if adjustment.leftEdge?.advanced != nil {
+                    WallpaperAdvancedControls(
+                        grade: Binding(
+                            get: { adjustment.leftEdge?.advanced ?? savedAdvanced },
+                            set: {
+                                adjustment.leftEdge?.advanced = $0
+                                savedAdvanced = $0
+                                showOriginal = false
+                            }
+                        ),
+                        original: original,
+                        seamWidth: adjustment.leftEdge?.width ?? 0
+                    )
+                }
                 Button("恢复普通融合默认值") {
-                    adjustment.leftEdge = .init()
+                    var edge = WallpaperLeftEdgeBlend()
+                    edge.advanced = adjustment.leftEdge?.advanced
+                    adjustment.leftEdge = edge
+                    savedEdge = edge
                     usedWidePreset = false
                     showOriginal = false
                 }
             }
         }.disabled(original == nil)
+    }
+
+    private static func matchesWide(_ edge: WallpaperLeftEdgeBlend?) -> Bool {
+        guard let edge else { return false }
+        return edge.width == widePreset.width && edge.brightness == widePreset.brightness
+            && edge.saturation == widePreset.saturation && edge.curve == widePreset.curve
     }
 
     private func edgeValue(_ field: WritableKeyPath<WallpaperLeftEdgeBlend, Double>) -> Binding<Double> {

@@ -66,6 +66,66 @@ struct WallpaperLeftEdgeBlend: Codable, Equatable {
     var brightness = 0.25
     var saturation = 0.08
     var curve = 1.0
+    var advanced: WallpaperAdvancedGrade?
+}
+
+struct WallpaperCurvePoint: Codable, Equatable {
+    var x: Double
+    var y: Double
+}
+
+struct WallpaperAdvancedGrade: Codable, Equatable {
+    var local = true
+    var protectHighlights = true
+    var black = 0.0
+    var gray = 0.5
+    var white = 1.0
+    var gainRed = 1.0
+    var gainGreen = 1.0
+    var gainBlue = 1.0
+    var offsetRed = 0.0
+    var offsetGreen = 0.0
+    var offsetBlue = 0.0
+    var master = WallpaperAdvancedGrade.identityCurve
+    var red = WallpaperAdvancedGrade.identityCurve
+    var green = WallpaperAdvancedGrade.identityCurve
+    var blue = WallpaperAdvancedGrade.identityCurve
+
+    static let identityCurve = [WallpaperCurvePoint(x: 0, y: 0), WallpaperCurvePoint(x: 1, y: 1)]
+
+    var affectsPixels: Bool {
+        if black > 0.0001 || white < 0.999 || abs(gray - 0.5) > 0.001 { return true }
+        if abs(gainRed - 1) > 0.001 || abs(gainGreen - 1) > 0.001 || abs(gainBlue - 1) > 0.001 { return true }
+        if abs(offsetRed) > 0.001 || abs(offsetGreen) > 0.001 || abs(offsetBlue) > 0.001 { return true }
+        return !Self.linear(master) || !Self.linear(red) || !Self.linear(green) || !Self.linear(blue)
+    }
+
+    var needsBlend: Bool { affectsPixels || protectHighlights }
+
+    var levelInputs: (black: Double, white: Double, gamma: Double) {
+        let low = min(max(black, 0), 0.98)
+        let high = min(1, max(white, low + 0.02))
+        let mid = min(max(gray, low + 0.01), high - 0.01)
+        let mapped = (mid - low) / (high - low)
+        return (low, high, log(0.5) / log(min(0.99, max(0.01, mapped))))
+    }
+
+    static func ordered(_ points: [WallpaperCurvePoint]) -> [WallpaperCurvePoint] {
+        var ordered = points.filter { $0.x.isFinite && $0.y.isFinite }.sorted { $0.x < $1.x }
+        guard ordered.count >= 2 else { return identityCurve }
+        ordered[0].x = 0
+        ordered[ordered.count - 1].x = 1
+        for index in ordered.indices {
+            ordered[index].y = min(1, max(0, ordered[index].y))
+        }
+        return ordered
+    }
+
+    static func linear(_ points: [WallpaperCurvePoint]) -> Bool {
+        let ordered = points.sorted { $0.x < $1.x }
+        guard ordered.count <= 2, let first = ordered.first, let last = ordered.last else { return ordered.isEmpty }
+        return abs(first.x) < 0.001 && abs(first.y) < 0.001 && abs(last.x - 1) < 0.001 && abs(last.y - 1) < 0.001
+    }
 }
 
 struct WallpaperMaskCompensation: Codable, Equatable {
