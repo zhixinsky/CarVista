@@ -3,6 +3,7 @@ import SwiftUI
 import PhotosUI
 import ImageIO
 import Network
+import Security
 
 @main
 struct CarVistaApp: App {
@@ -37,6 +38,8 @@ final class WorkshopModel: ObservableObject {
     @Published var reportURL: URL?
     @Published var reportNote = ""
     @Published var reportFailed = false
+    @Published var diagnosing = false
+    @Published var networkCopy = ""
     @Published var generationProgress = 0.0
     @Published var photoDownloadUnlocked = false
     @Published var lastDetectedWallpaperSize: CGSize?
@@ -215,10 +218,12 @@ final class WorkshopModel: ObservableObject {
         }
         guard !busy else { return }
         busy = true
+        diagnosing = true
         reportFailed = false
         reportNote = ""
         Task {
             let network = await NetworkCheck.collect()
+            self.diagnosing = false
             self.busy = false
             self.writeReport(upload: true, network: network)
         }
@@ -236,7 +241,13 @@ final class WorkshopModel: ObservableObject {
                 "appVersion": appVersion, "appGroupStatus": appGroupStatus,
                 "lastScan": lastScanSummary ?? "本次启动尚未查找",
                 "lastApply": lastApplySummary ?? "本次启动尚未应用"]
-            if let network { object["network"] = network }
+            if let network {
+                object["network"] = network
+                if let encoded = try? JSONSerialization.data(withJSONObject: network, options: [.prettyPrinted, .sortedKeys]),
+                   let text = String(data: encoded, encoding: .utf8) {
+                    networkCopy = text
+                }
+            }
             var data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
             if data.count > 900_000 {
                 object["log"] = "日志过长，已截断后上传"
@@ -608,6 +619,15 @@ struct HelpView: View {
                     Text(model.reportNote)
                         .font(.subheadline)
                         .foregroundStyle(model.reportFailed ? Color.red : Color.secondary)
+                        .textSelection(.enabled)
+                }
+                if !model.networkCopy.isEmpty {
+                    Button("复制网络诊断") {
+                        UIPasteboard.general.string = model.networkCopy
+                        if !model.reportNote.hasPrefix("网络诊断已复制") {
+                            model.reportNote = "网络诊断已复制。\(model.reportNote)"
+                        }
+                    }
                 }
                 if let reportURL = model.reportURL { ShareLink("导出报告", item: reportURL) }
             }
@@ -633,6 +653,24 @@ struct HelpView: View {
         }
         .navigationTitle("安装检查与诊断")
         .navigationBarTitleDisplayMode(.inline)
+        .overlay {
+            ZStack {
+                Color.black.opacity(0.28).ignoresSafeArea()
+                VStack(spacing: 14) {
+                    ProgressView().controlSize(.large)
+                    Text("正在诊断中")
+                        .font(.headline)
+                }
+                .padding(.horizontal, 28)
+                .padding(.vertical, 22)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .opacity(model.diagnosing ? 1 : 0)
+            .scaleEffect(model.diagnosing ? 1 : 0.96)
+            .allowsHitTesting(model.diagnosing)
+            .accessibilityHidden(!model.diagnosing)
+        }
+        .animation(.easeInOut(duration: 0.25), value: model.diagnosing)
         .confirmationDialog("解除车机壁纸锁定？解除后，其他软件或系统可能再次替换这些壁纸。", isPresented: $unlockConfirm, titleVisibility: .visible) {
             Button("解锁壁纸", role: .destructive) { model.unlockWallpapers() }
             Button("取消", role: .cancel) {}
@@ -656,66 +694,135 @@ private enum NetworkCheck {
         var constrained: Bool
     }
 
-    private struct LinkProbe: Sendable {
+    private struct LinkProbe {
         var url: String
+        var finalURL = ""
+        var host = ""
         var status: Int
         var milliseconds: Int
         var bytes: Int
+        var contentType = ""
+        var data = Data()
         var error: String
+        var nserror: [String: Any] = [:]
+        var redirects: [String] = []
+        var metrics: [String: Any] = [:]
+        var trust: [[String: Any]] = []
+        var session = ""
 
         var dictionary: [String: Any] {
-            [
+            var item: [String: Any] = [
                 "url": url,
+                "finalURL": finalURL.isEmpty ? url : finalURL,
+                "host": host,
                 "ok": (200..<400).contains(status),
                 "status": status,
                 "milliseconds": milliseconds,
                 "bytes": bytes,
-                "error": error
+                "error": error,
+                "session": session
             ]
+            if !nserror.isEmpty { item["nserror"] = nserror }
+            if !redirects.isEmpty { item["redirects"] = redirects }
+            if !metrics.isEmpty { item["metrics"] = metrics }
+            if !trust.isEmpty { item["trust"] = trust }
+            return item
         }
     }
 
-    private static let session: URLSession = {
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 12
-        config.timeoutIntervalForResource = 20
-        config.waitsForConnectivity = false
-        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        return URLSession(configuration: config)
-    }()
-
     static func collect() async -> [String: Any] {
+        let transport = DiagnosticTransport()
+        defer { transport.finish() }
         async let path = pathFacts()
-        async let baidu = probe(URL(string: "https://www.baidu.com")!)
-        async let backend = probe(ServiceGate.baseURL)
+        let baiduURL = URL(string: "https://www.baidu.com")!
+        let backendURL = ServiceGate.baseURL
+        async let baiduBusiness = transport.business(baiduURL)
+        async let baiduDefault = transport.systemDefault(baiduURL)
+        async let backendBusiness = transport.business(backendURL)
+        async let backendDefault = transport.systemDefault(backendURL)
         let facts = await path
-        let baiduResult = await baidu
-        let backendResult = await backend
-        let image = await probeGalleryImage()
+        let baidu = pair(business: await baiduBusiness, systemDefault: await baiduDefault)
+        let backend = pair(business: await backendBusiness, systemDefault: await backendDefault)
+        let image = await probeGalleryImage(transport)
+        var text = summaryText(facts: facts, baidu: baidu.business, backend: backend.business, image: image)
+        if baidu.dictionary["comparison"] as? String == "业务会话与系统默认会话结果不同" { text += "百度两次检查结果不同。" }
+        if backend.dictionary["comparison"] as? String == "业务会话与系统默认会话结果不同" { text += "网站两次检查结果不同。" }
+        if let address = remoteAddress(backend.systemDefault.metrics) { text += "网站远端地址 \(address)。" }
+        if let address = remoteAddress(image.metrics) { text += "图片远端地址 \(address)。" }
         return [
-            "summary": summaryText(facts: facts, baidu: baiduResult, backend: backendResult, image: image),
+            "summary": text,
+            "certificateTrust": "图库等业务请求使用 URLSession.shared，没有自定义证书信任回调。诊断用的系统默认会话只调用 SecTrustEvaluateWithError 记录结果，然后 performDefaultHandling，不接受也不拒绝证书。",
+            "metricsSource": "连接时间、TLS 握手时间、网络协议和 remoteAddress 来自系统默认 URLSession 的 URLSessionTaskMetrics。业务请求走 URLSession.shared，系统不向它提供这些指标。",
+            "customTrustDelegate": false,
             "status": facts.status,
             "interface": facts.interface,
             "expensive": facts.expensive,
             "constrained": facts.constrained,
-            "baidu": baiduResult.dictionary,
-            "backend": backendResult.dictionary,
+            "baidu": baidu.dictionary,
+            "backend": backend.dictionary,
             "image": image.dictionary
         ]
     }
 
+    private struct ProbePair {
+        var business: LinkProbe
+        var systemDefault: LinkProbe
+        var dictionary: [String: Any] {
+            let same = business.dictionary["ok"] as? Bool == systemDefault.dictionary["ok"] as? Bool
+            return [
+                "comparison": same ? "业务会话与系统默认会话结果一致" : "业务会话与系统默认会话结果不同",
+                "business": business.dictionary,
+                "systemDefault": systemDefault.dictionary
+            ]
+        }
+    }
+
+    private static func pair(business: LinkProbe, systemDefault: LinkProbe) -> ProbePair {
+        ProbePair(business: business, systemDefault: systemDefault)
+    }
+
     static func brief(_ network: [String: Any]) -> String {
         let image = network["image"] as? [String: Any] ?? [:]
-        let picture = image["ok"] as? Bool == true ? "图库图片可打开" : "图库图片打不开"
-        return "\(word(network["baidu"], "百度"))，\(word(network["backend"], "网站"))，\(picture)。"
+        let businessOK = (image["business"] as? [String: Any])?["ok"] as? Bool
+        let systemOK = (image["systemDefault"] as? [String: Any])?["ok"] as? Bool
+        let picture: String
+        if image["ok"] as? Bool == true {
+            picture = systemOK == false ? "图库图片业务会话可打开，系统默认会话失败" : "图库图片可打开"
+        } else if businessOK == false && systemOK == true {
+            picture = "图库图片业务会话失败，系统默认会话可打开"
+        } else if businessOK == true && systemOK == false {
+            picture = "图库图片业务会话可打开，系统默认会话失败"
+        } else {
+            picture = "图库图片打不开"
+        }
+        var text = "\(word(network["baidu"], "百度"))，\(word(network["backend"], "网站"))，\(picture)。"
+        if (network["baidu"] as? [String: Any])?["comparison"] as? String == "业务会话与系统默认会话结果不同" {
+            text += "百度两次检查结果不同。"
+        }
+        if (network["backend"] as? [String: Any])?["comparison"] as? String == "业务会话与系统默认会话结果不同" {
+            text += "网站两次检查结果不同。"
+        }
+        return text
     }
 
     private static func word(_ value: Any?, _ name: String) -> String {
         let item = value as? [String: Any] ?? [:]
-        let status = item["status"] as? Int ?? 0
+        let business = item["business"] as? [String: Any] ?? item
+        let status = business["status"] as? Int ?? 0
+        let code = errorCode(business["nserror"])
         if (200..<400).contains(status) { return "\(name)可访问" }
+        if code == -1200 { return "\(name) TLS 失败（-1200）" }
         if status > 0 { return "\(name)返回\(status)" }
         return "\(name)无法连接"
+    }
+
+    private static func remoteAddress(_ metrics: [String: Any]) -> String? {
+        let rows = metrics["transactions"] as? [[String: Any]] ?? []
+        return rows.compactMap { $0["remoteAddress"] as? String }.first { !$0.isEmpty }
+    }
+
+    private static func errorCode(_ value: Any?) -> Int {
+        (value as? [String: Any])?["code"] as? Int ?? 0
     }
 
     private static func summaryText(facts: PathFacts, baidu: LinkProbe, backend: LinkProbe, image: ImageProbe) -> String {
@@ -732,49 +839,62 @@ private enum NetworkCheck {
         if probe.status > 0 {
             return "\(name)已连通但返回 \(probe.status)（\(probe.milliseconds)毫秒）"
         }
+        let code = errorCode(probe.nserror)
+        if code == -1200 { return "\(name) TLS 失败（NSURLErrorDomain -1200）" }
         let reason = probe.error.isEmpty ? "无法连接" : probe.error
         return "\(name)无法连接（\(reason)）"
     }
 
-    private static func probe(_ url: URL) async -> LinkProbe {
-        var request = URLRequest(url: url, timeoutInterval: 8)
-        request.httpMethod = "GET"
-        let start = Date()
-        do {
-            let (data, response) = try await session.data(for: request)
-            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-            return LinkProbe(url: url.absoluteString, status: code,
-                             milliseconds: elapsed(since: start), bytes: data.count, error: "")
-        } catch {
-            let reason = (error as? URLError).map { "\($0.localizedDescription)（\($0.code.rawValue)）" } ?? error.localizedDescription
-            return LinkProbe(url: url.absoluteString, status: 0,
-                             milliseconds: elapsed(since: start), bytes: 0, error: String(reason.prefix(180)))
-        }
-    }
-
-    private struct ImageProbe: Sendable {
+    private struct ImageProbe {
         var url = ""
         var resolved = ""
+        var host = ""
+        var finalURL = ""
         var status = 0
         var milliseconds = 0
         var bytes = 0
         var contentType = ""
         var error: String
+        var nserror: [String: Any] = [:]
+        var redirects: [String] = []
+        var metrics: [String: Any] = [:]
+        var trust: [[String: Any]] = []
+        var business: [String: Any] = [:]
+        var systemDefault: [String: Any] = [:]
 
         var ok: Bool { (200..<300).contains(status) && error.isEmpty }
 
         var dictionary: [String: Any] {
-            [
-                "url": url, "resolved": resolved, "ok": ok, "status": status,
-                "milliseconds": milliseconds, "bytes": bytes, "contentType": contentType, "error": error
+            var item: [String: Any] = [
+                "url": url, "resolved": resolved, "host": host,
+                "finalURL": finalURL.isEmpty ? resolved : finalURL,
+                "ok": ok, "status": status, "milliseconds": milliseconds,
+                "bytes": bytes, "contentType": contentType, "error": error
             ]
+            if !nserror.isEmpty { item["nserror"] = nserror }
+            if !redirects.isEmpty { item["redirects"] = redirects }
+            if !metrics.isEmpty { item["metrics"] = metrics }
+            if !trust.isEmpty { item["trust"] = trust }
+            if !business.isEmpty { item["business"] = business }
+            if !systemDefault.isEmpty { item["systemDefault"] = systemDefault }
+            return item
         }
 
         var sentence: String {
-            if ok { return "图库预览图可打开（\(status)，\(milliseconds)毫秒，\(bytes)字节）" }
-            let reason = error.isEmpty ? "无法下载" : error
-            let address = resolved.isEmpty ? url : resolved
-            return address.isEmpty ? "图库预览图打不开（\(reason)）" : "图库预览图打不开（\(reason)）。地址 \(address)"
+            let base: String
+            if ok {
+                base = "图库预览图可打开（\(status)，\(milliseconds)毫秒，\(bytes)字节）"
+            } else {
+                let code = (nserror["code"] as? Int) == -1200 ? "TLS -1200" : ""
+                let reason = error.isEmpty ? "无法下载" : error
+                let address = finalURL.isEmpty ? (resolved.isEmpty ? url : resolved) : finalURL
+                let prefix = code.isEmpty ? reason : "\(reason)，\(code)"
+                base = address.isEmpty ? "图库预览图打不开（\(prefix)）" : "图库预览图打不开（\(prefix)）。地址 \(address)"
+            }
+            let businessOK = (business["ok"] as? Bool) ?? ok
+            let systemOK = systemDefault["ok"] as? Bool
+            guard let systemOK, businessOK != systemOK else { return base }
+            return base + (systemOK ? "。系统默认会话可以打开" : "。系统默认会话打不开")
         }
     }
 
@@ -786,61 +906,300 @@ private enum NetworkCheck {
         enum CodingKeys: String, CodingKey { case previewURL = "preview_url" }
     }
 
-    private static func probeGalleryImage() async -> ImageProbe {
-        do {
-            let categories = try await get(ServiceGate.join("v1/gallery/categories"))
-            guard let listed = try? JSONDecoder().decode(CategoryList.self, from: categories.data),
-                  categories.status == 200 else {
-                return ImageProbe(error: "壁纸分类无法打开")
-            }
-            for category in listed.items {
-                let catalog = try await get(ServiceGate.join("v1/catalog/\(category.id)"))
-                guard catalog.status == 200, let feed = try? JSONDecoder().decode(PreviewList.self, from: catalog.data),
-                      let preview = feed.items.first?.previewURL else { continue }
-                return await downloadPreview(preview)
-            }
-            return ImageProbe(error: "后台没有可下载的图库图片")
-        } catch {
-            return ImageProbe(error: String(errorText(error).prefix(180)))
+    private static func probeGalleryImage(_ transport: DiagnosticTransport) async -> ImageProbe {
+        let categoryURL = ServiceGate.join("v1/gallery/categories")
+        let categories = await transport.business(categoryURL)
+        guard categories.status == 200,
+              let listed = try? JSONDecoder().decode(CategoryList.self, from: categories.data) else {
+            let control = await transport.systemDefault(categoryURL)
+            var failure = ImageProbe(error: categories.error.isEmpty ? "壁纸分类无法打开" : categories.error)
+            failure.nserror = categories.nserror
+            failure.host = categories.host
+            failure.finalURL = categories.finalURL.isEmpty ? control.finalURL : categories.finalURL
+            failure.redirects = control.redirects
+            failure.metrics = control.metrics
+            failure.trust = control.trust
+            failure.business = categories.dictionary
+            failure.systemDefault = control.dictionary
+            return failure
         }
+        for category in listed.items {
+            let catalogURL = ServiceGate.join("v1/catalog/\(category.id)")
+            let catalog = await transport.business(catalogURL)
+            if catalog.status == 0 {
+                let control = await transport.systemDefault(catalogURL)
+                var failure = ImageProbe(url: catalogURL.absoluteString, resolved: catalogURL.absoluteString,
+                                         host: catalog.host, finalURL: control.finalURL,
+                                         error: catalog.error.isEmpty ? "图库列表无法打开" : catalog.error)
+                failure.nserror = catalog.nserror
+                failure.redirects = control.redirects
+                failure.metrics = control.metrics
+                failure.trust = control.trust
+                failure.business = catalog.dictionary
+                failure.systemDefault = control.dictionary
+                return failure
+            }
+            guard catalog.status == 200,
+                  let feed = try? JSONDecoder().decode(PreviewList.self, from: catalog.data),
+                  let preview = feed.items.first?.previewURL else { continue }
+            return await downloadPreview(preview, transport)
+        }
+        return ImageProbe(error: "后台没有可下载的图库图片")
     }
 
-    private static func downloadPreview(_ preview: URL) async -> ImageProbe {
+    private static func downloadPreview(_ preview: URL, _ transport: DiagnosticTransport) async -> ImageProbe {
         let resolved = ServiceClient.publicURL(preview)
-        let start = Date()
-        do {
-            let result = try await get(resolved)
-            let type = (result.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
-            let magic = imageData(result.data)
-            var failure = ""
-            if !(200..<300).contains(result.status) {
-                failure = "状态 \(result.status)"
-            } else if !magic {
-                failure = "返回的不是图片（\(type.isEmpty ? "未知类型" : type)）"
+        async let business = transport.business(resolved)
+        async let systemDefault = transport.systemDefault(resolved)
+        let primary = await business
+        let control = await systemDefault
+        let type = primary.contentType
+        let magic = imageData(primary.data)
+        var failure = ""
+        if !primary.error.isEmpty {
+            failure = primary.error
+        } else if !(200..<300).contains(primary.status) {
+            failure = "状态 \(primary.status)"
+        } else if !magic {
+            failure = "返回的不是图片（\(type.isEmpty ? "未知类型" : type)）"
+        }
+        return ImageProbe(
+            url: preview.absoluteString, resolved: resolved.absoluteString, host: primary.host,
+            finalURL: primary.finalURL, status: primary.status, milliseconds: primary.milliseconds,
+            bytes: primary.bytes, contentType: type, error: failure, nserror: primary.nserror,
+            redirects: control.redirects, metrics: control.metrics, trust: control.trust,
+            business: primary.dictionary, systemDefault: control.dictionary
+        )
+    }
+
+    private final class DiagnosticTransport: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+        private final class State {
+            var data = Data()
+            var response: HTTPURLResponse?
+            var error: Error?
+            var metrics: URLSessionTaskMetrics?
+            var redirects: [String] = []
+            var trust: [[String: Any]] = []
+            var continuation: CheckedContinuation<Void, Never>?
+        }
+
+        private let lock = NSLock()
+        private var states: [Int: State] = [:]
+        private var standard: URLSession!
+
+        override init() {
+            super.init()
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 12
+            config.timeoutIntervalForResource = 20
+            config.waitsForConnectivity = false
+            config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+            standard = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        }
+
+        func finish() {
+            standard.finishTasksAndInvalidate()
+        }
+
+        func business(_ url: URL) async -> LinkProbe {
+            var request = URLRequest(url: url, timeoutInterval: 12)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            let start = Date()
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                return outcome(url: url, data: data, response: response as? HTTPURLResponse, error: nil, redirects: [], metrics: [:], trust: [],
+                               milliseconds: NetworkCheck.elapsed(since: start), session: "URLSession.shared")
+            } catch {
+                return outcome(url: url, data: Data(), response: nil, error: error, redirects: [], metrics: [:], trust: [],
+                               milliseconds: NetworkCheck.elapsed(since: start), session: "URLSession.shared")
             }
-            return ImageProbe(url: preview.absoluteString, resolved: resolved.absoluteString, status: result.status,
-                              milliseconds: elapsed(since: start), bytes: result.data.count, contentType: type, error: failure)
-        } catch {
-            return ImageProbe(url: preview.absoluteString, resolved: resolved.absoluteString,
-                              milliseconds: elapsed(since: start), error: errorText(error))
+        }
+
+        func systemDefault(_ url: URL) async -> LinkProbe {
+            var request = URLRequest(url: url, timeoutInterval: 12)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            let start = Date()
+            let state = State()
+            let task = standard.dataTask(with: request)
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                state.continuation = continuation
+                lock.lock()
+                states[task.taskIdentifier] = state
+                lock.unlock()
+                task.resume()
+            }
+            lock.lock()
+            states[task.taskIdentifier] = nil
+            lock.unlock()
+            return outcome(url: url, data: state.data, response: state.response, error: state.error,
+                           redirects: state.redirects, metrics: NetworkCheck.metricRecord(state.metrics), trust: state.trust,
+                           milliseconds: NetworkCheck.elapsed(since: start), session: "URLSessionConfiguration.default")
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+            if let state = state(for: task) {
+                let from = response.url?.absoluteString ?? ""
+                let to = request.url?.absoluteString ?? ""
+                state.redirects.append(from.isEmpty ? to : "\(from) -> \(to)")
+            }
+            completionHandler(request)
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
+                        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+            if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+               let trust = challenge.protectionSpace.serverTrust, let state = state(for: task) {
+                var trustError: CFError?
+                let trusted = SecTrustEvaluateWithError(trust, &trustError)
+                var record: [String: Any] = [
+                    "host": challenge.protectionSpace.host,
+                    "trusted": trusted,
+                    "disposition": "performDefaultHandling"
+                ]
+                if let trustError {
+                    record["error"] = NetworkCheck.errorRecord(trustError)
+                }
+                state.trust.append(record)
+            }
+            completionHandler(.performDefaultHandling, nil)
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            state(for: dataTask)?.data.append(data)
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+            state(for: dataTask)?.response = response as? HTTPURLResponse
+            completionHandler(.allow)
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+            state(for: task)?.metrics = metrics
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            guard let state = state(for: task) else { return }
+            state.error = error
+            let continuation = state.continuation
+            state.continuation = nil
+            continuation?.resume()
+        }
+
+        private func state(for task: URLSessionTask) -> State? {
+            lock.lock()
+            defer { lock.unlock() }
+            return states[task.taskIdentifier]
+        }
+
+        private func outcome(url: URL, data: Data, response: HTTPURLResponse?, error: Error?, redirects: [String],
+                             metrics: [String: Any], trust: [[String: Any]], milliseconds: Int, session: String) -> LinkProbe {
+            let finalURL = response?.url?.absoluteString ?? ""
+            let tree = error.map { NetworkCheck.errorRecord($0) } ?? [:]
+            let description = (tree["description"] as? String) ?? ""
+            let code = tree["code"] as? Int ?? 0
+            let short = description.isEmpty ? "" : (code == 0 ? description : "\(description)（\(code)）")
+            return LinkProbe(
+                url: url.absoluteString, finalURL: finalURL, host: url.host ?? "",
+                status: response?.statusCode ?? 0, milliseconds: milliseconds, bytes: data.count,
+                contentType: response?.value(forHTTPHeaderField: "Content-Type") ?? "", data: data,
+                error: String(short.prefix(180)), nserror: tree, redirects: redirects, metrics: metrics,
+                trust: trust, session: session
+            )
         }
     }
 
-    private struct Body { let data: Data; let response: URLResponse; var status: Int { (response as? HTTPURLResponse)?.statusCode ?? 0 } }
+    private static func metricRecord(_ metrics: URLSessionTaskMetrics?) -> [String: Any] {
+        guard let metrics else { return [:] }
+        let transactions: [[String: Any]] = metrics.transactionMetrics.map { item in
+            var row: [String: Any] = [
+                "url": item.request.url?.absoluteString ?? "",
+                "protocol": item.networkProtocolName ?? "",
+                "proxy": item.isProxyConnection,
+                "reusedConnection": item.isReusedConnection,
+                "cellular": item.isCellular,
+                "remoteAddress": item.remoteAddress ?? "",
+                "remotePort": item.remotePort ?? 0
+            ]
+            func span(_ start: Date?, _ end: Date?) -> Int? {
+                guard let start, let end else { return nil }
+                return Int(end.timeIntervalSince(start) * 1000)
+            }
+            if let dns = span(item.domainLookupStartDate, item.domainLookupEndDate) { row["dnsMilliseconds"] = dns }
+            if let connect = span(item.connectStartDate, item.connectEndDate) { row["connectMilliseconds"] = connect }
+            if let tls = span(item.secureConnectionStartDate, item.secureConnectionEndDate) { row["tlsMilliseconds"] = tls }
+            let tlsVersion = item.negotiatedTLSProtocolVersion.rawValue
+            if tlsVersion != 0 { row["tlsVersion"] = tlsVersionName(tlsVersion) }
+            if let response = item.response as? HTTPURLResponse { row["status"] = response.statusCode }
+            return row
+        }
+        return [
+            "taskMilliseconds": Int(metrics.taskInterval.duration * 1000),
+            "redirectCount": metrics.redirectCount,
+            "transactions": transactions
+        ]
+    }
 
-    private static func get(_ url: URL) async throws -> Body {
-        let (data, response) = try await session.data(for: URLRequest(url: url, timeoutInterval: 12))
-        return Body(data: data, response: response)
+    private static func tlsVersionName(_ version: UInt16) -> String {
+        switch version {
+        case 0x0301: return "TLS 1.0"
+        case 0x0302: return "TLS 1.1"
+        case 0x0303: return "TLS 1.2"
+        case 0x0304: return "TLS 1.3"
+        default: return "0x" + String(version, radix: 16)
+        }
+    }
+
+    private static func errorRecord(_ error: Error, depth: Int = 0) -> [String: Any] {
+        let ns = error as NSError
+        var info: [String: Any] = [:]
+        if depth < 5 {
+            for (key, value) in ns.userInfo where key != NSUnderlyingErrorKey && key != NSMultipleUnderlyingErrorsKey {
+                info[key] = plistValue(value, depth: depth + 1)
+            }
+        }
+        var record: [String: Any] = [
+            "domain": ns.domain,
+            "code": ns.code,
+            "description": ns.localizedDescription,
+            "userInfo": info
+        ]
+        if depth < 5, let underlying = ns.userInfo[NSUnderlyingErrorKey] as? Error {
+            record["underlying"] = errorRecord(underlying, depth: depth + 1)
+        }
+        if depth < 5, let many = ns.userInfo[NSMultipleUnderlyingErrorsKey] as? [Error] {
+            record["underlyingErrors"] = many.prefix(6).map { errorRecord($0, depth: depth + 1) }
+        }
+        return record
+    }
+
+    private static func plistValue(_ value: Any, depth: Int) -> Any {
+        switch value {
+        case let text as String:
+            return String(text.prefix(400))
+        case let number as NSNumber:
+            return number
+        case let url as URL:
+            return url.absoluteString
+        case let date as Date:
+            return ISO8601DateFormatter().string(from: date)
+        case let error as Error:
+            return depth < 5 ? errorRecord(error, depth: depth + 1) : error.localizedDescription
+        case let items as [Any]:
+            return items.prefix(12).map { plistValue($0, depth: depth + 1) }
+        case let object as [String: Any]:
+            var copy: [String: Any] = [:]
+            for (key, item) in object.prefix(20) { copy[key] = plistValue(item, depth: depth + 1) }
+            return copy
+        default:
+            return String(String(describing: value).prefix(400))
+        }
     }
 
     private static func imageData(_ data: Data) -> Bool {
         if data.starts(with: [0xFF, 0xD8, 0xFF]) { return true }
         return data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
-    }
-
-    private static func errorText(_ error: Error) -> String {
-        let reason = (error as? URLError).map { "\($0.localizedDescription)（\($0.code.rawValue)）" } ?? error.localizedDescription
-        return String(reason.prefix(180))
     }
 
     private static func elapsed(since start: Date) -> Int {
