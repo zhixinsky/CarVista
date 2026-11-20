@@ -323,17 +323,19 @@ private struct BingWallpaperDetail: View {
 struct GalleryImage: View {
     let url: URL?
     let mode: ContentMode
+    var backed = true
     @State private var image: UIImage?
     @State private var failed = false
 
-    init(url: URL?, mode: ContentMode) {
+    init(url: URL?, mode: ContentMode, backed: Bool = true) {
         self.url = url
         self.mode = mode
+        self.backed = backed
         _image = State(initialValue: url.flatMap(CatalogLibrary.savedImage))
     }
 
     var body: some View {
-        Rectangle().fill(.quaternary).overlay {
+        let content = Group {
             if let image {
                 Image(uiImage: image).resizable().aspectRatio(contentMode: mode)
             } else if url == nil {
@@ -343,7 +345,14 @@ struct GalleryImage: View {
             } else {
                 ProgressView()
             }
-        }.clipped()
+        }
+        Group {
+            if backed {
+                Rectangle().fill(.quaternary).overlay { content }.clipped()
+            } else {
+                content.frame(maxWidth: .infinity, minHeight: image == nil ? 92 : 0)
+            }
+        }
         .task(id: url) {
             guard let url else { return }
             let loaded = await CatalogLibrary.cachedImage(url)

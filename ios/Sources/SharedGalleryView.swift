@@ -78,8 +78,10 @@ struct SharedWallpaperGalleryView: View {
                 ForEach(items) { item in
                     VStack(alignment: .leading, spacing: 8) {
                         Button { select(item) } label: {
-                            GalleryImage(url: item.previewURL, mode: .fit)
-                            .frame(maxWidth: .infinity, minHeight: 92)
+                            GalleryImage(url: item.previewURL, mode: .fit, backed: false)
+                            .aspectRatio(item.width > 0 && item.height > 0 ? CGFloat(item.width) / CGFloat(item.height) : 16 / 9, contentMode: .fit)
+                            .frame(maxWidth: .infinity)
+                            .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .overlay {
                                 if busyID == item.id { WallpaperDownloadCover() }
